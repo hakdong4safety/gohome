@@ -480,6 +480,12 @@
   function escapeAttr(s){ return (s||'').replace(/"/g,'&quot;'); }
   function escapeHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function resolvePhrase(caption, date){ return (caption||'').replace('{날짜}', fmtDateDot(date)); }
+  // Grid caption: vehicle number gets its own line so long text no longer
+  // wraps awkwardly in the middle of a phrase.
+  function buildGridCaption(slotData, date){
+    const body = resolvePhrase(slotData.caption, date);
+    return slotData.vehicle ? `내용 : [${slotData.vehicle}]\n${body}` : `내용 : ${body}`;
+  }
   function buildACaptionText(slotData, date){
     const resolved = resolvePhrase(slotData.caption, date);
     return slotData.vehicle ? `[${slotData.vehicle}] ${resolved}` : resolved;
@@ -1049,6 +1055,22 @@
       return sheetName;
     }
 
+    // ExcelJS redirects any style write on a merged slave cell to the master,
+    // so fills/borders must be normalized BEFORE the merges are applied --
+    // otherwise a merged box paints only its first cell and looks half-coloured.
+    // When ExcelJS loads a merged box it keeps the border only on the master
+    // cell and drops the other edges; mergeCells() then copies that master
+    // style onto every cell, so a saved box ends up drawn on just its top and
+    // left. Giving the master a complete 4-sided border before merging makes
+    // Excel draw the whole rectangle again.
+    function closeBoxBorder(ws, rangeStr){
+      const tl = ws.getCell(rangeStr.split(':')[0]);
+      const b0 = tl.border || {};
+      const edgeStyle = b0.top || b0.left || b0.bottom || b0.right;
+      if(!edgeStyle) return; // template drew no box here -- leave it alone
+      tl.border = { top:edgeStyle, bottom:edgeStyle, left:edgeStyle, right:edgeStyle };
+    }
+
     // Copy a template sheet (with all its formatting) into the output workbook.
     function cloneSheet(model, sheetName){
       const ws = out.addWorksheet(sheetName);
@@ -1057,8 +1079,11 @@
       m.id = ws.id;
       ws.model = m;
       const sheet = out.getWorksheet(sheetName);
+      const merges = model.merges || [];
+      // normalize first (cells still un-merged, so writes land where intended)
+      merges.forEach(rng => { try{ closeBoxBorder(sheet, rng); }catch(e){} });
       // assigning .model does not re-apply merges, so do that explicitly
-      (model.merges || []).forEach(rng => { try{ sheet.mergeCells(rng); }catch(e){} });
+      merges.forEach(rng => { try{ sheet.mergeCells(rng); }catch(e){} });
       return sheet;
     }
 
@@ -1102,7 +1127,9 @@
           if(!spec.chunk[i]) continue;
           const b = blocks[i];
           const capAddr = b.cap.split(':')[0];
-          ws.getCell(capAddr).value = '내용 : ' + buildACaptionText(spec.chunk[i], spec.entry.date);
+          const capCell = ws.getCell(capAddr);
+          capCell.value = buildGridCaption(spec.chunk[i], spec.entry.date);
+          capCell.alignment = Object.assign({}, capCell.alignment, { wrapText:true, vertical:'middle', horizontal:'center' });
           const pr = b.photo.split(':');
           const tl = ws.getCell(pr[0]);
           const br = ws.getCell(pr[1]);
@@ -1134,7 +1161,9 @@
           const b = blocks[i];
           const photo = spec.chunk[i];
           const capAddr = b.cap.split(':')[0];
-          ws.getCell(capAddr).value = `${yy}.${mm}.${dd} ${photo.company ? '['+photo.company+'] ' : ''}${spec.entry.category}`;
+          const capCell = ws.getCell(capAddr);
+          capCell.value = `${yy}.${mm}.${dd}` + (photo.company ? `\n[${photo.company}]` : '') + `\n${spec.entry.category}`;
+          capCell.alignment = Object.assign({}, capCell.alignment, { wrapText:true, vertical:'middle', horizontal:'center' });
           const pr = b.photo.split(':');
           const tl = ws.getCell(pr[0]);
           const br = ws.getCell(pr[1]);
