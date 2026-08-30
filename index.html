@@ -182,7 +182,10 @@
   .modal-company-input{width:100%;padding:6px 8px;font-size:12px;border:1px solid var(--line-soft);border-radius:7px;background:#fff;}
   .modal-set{grid-column:1/-1;border:1.5px solid var(--line-soft);border-radius:12px;padding:12px;background:#FAFBFB;margin-bottom:4px;}
   .modal-set-company{font-weight:700;font-size:13px;padding:9px 10px;}
-  .modal-set .set-head{font-size:11.5px;font-weight:800;color:var(--text-dim);margin-bottom:7px;}
+  .modal-set .set-head{font-size:11.5px;font-weight:800;color:var(--text-dim);margin-bottom:7px;display:flex;align-items:center;}
+  .modal-set .set-del{margin-left:auto;background:none;border:none;color:#C0392B;font-size:11.5px;font-weight:800;padding:2px 4px;}
+  .modal-photo-slot .slot-swap{position:absolute;left:0;right:0;bottom:0;background:rgba(20,30,40,.62);
+    color:#fff;font-size:10.5px;font-weight:700;text-align:center;padding:3px 0;}
   .modal-set-photos{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:10px;}
   .add-set-btn{grid-column:1/-1;}
   .modal-photo-slot{position:relative;border:1.5px dashed var(--line-soft);border-radius:12px;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#FAFBFB;}
@@ -190,6 +193,13 @@
   .modal-photo-slot .rm-btn{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.6);color:#fff;border:none;width:24px;height:24px;border-radius:50%;font-size:13px;line-height:1;}
   .add-photo-btn{border:1.5px dashed var(--amber);border-radius:12px;aspect-ratio:4/3;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#FFF9EF;color:var(--amber-dark);font-size:12.5px;font-weight:700;gap:4px;}
   .add-photo-btn .plus{font-size:22px;line-height:1;}
+  .day-loading{display:none;background:#EEF3F7;color:var(--navy);font-size:12.5px;font-weight:700;
+    border-radius:9px;padding:9px 12px;margin-bottom:12px;text-align:center;}
+  .day-loading.show{display:block;}
+  .modal-busy{display:none;grid-column:1/-1;background:#EEF3F7;color:var(--navy);font-size:12.5px;
+    font-weight:700;border-radius:9px;padding:10px 12px;margin-bottom:10px;text-align:center;}
+  .modal-busy.show{display:block;}
+  .ei-sub{font-size:11px;color:var(--text-dim);font-weight:700;margin-top:2px;}
   .cut-toggle{display:flex;gap:6px;background:#EEF1F3;border-radius:10px;padding:4px;margin-bottom:12px;}
   .cut-toggle button{flex:1;border:none;background:none;font-size:13px;font-weight:800;color:var(--text-dim);padding:8px 0;border-radius:7px;}
   .cut-toggle button.on{background:#fff;color:var(--navy);box-shadow:0 1px 4px rgba(20,30,40,.14);}
@@ -274,6 +284,7 @@
         <button class="db-today" id="registerTodayBtn">오늘</button>
       </div>
 
+      <div class="day-loading" id="registerLoading">불러오는 중…</div>
       <button class="export-all-btn" id="startRegisterBtn" style="margin-bottom:20px;"><span class="icon">📷</span><span>새 사진 등록</span></button>
 
       <div class="section-heading"><span class="sh-mark"></span>일일 작업계획서 점검 결과 보고</div>
@@ -293,6 +304,7 @@
         <button class="db-today" id="exportTodayBtn">오늘</button>
       </div>
 
+      <div class="day-loading" id="exportLoading">불러오는 중…</div>
       <div class="section-heading"><span class="sh-mark"></span>내보낼 항목 선택</div>
       <div id="exportItemsList"></div>
       <div class="note-box" style="margin-top:4px;">항목을 체크하지 않고 바로 내보내면, 사진이 등록된 항목이 전부 자동으로 포함됩니다.</div>
@@ -720,13 +732,26 @@
     registerDateInput.value = registerDate;
     registerDateInput.dispatchEvent(new Event('change'));
   });
+  // 날짜를 연달아 바꾸면 먼저 보낸 요청이 나중에 도착해서 화면을 덮어쓸 수 있다.
+  // (날짜칸은 8/20인데 내용은 8/1이 뜨고, 그 상태로 저장하면 8/20에 8/1 사진이 들어간다)
+  // 요청마다 번호를 붙여서 마지막 요청 결과만 반영한다.
+  let registerReqToken = 0;
   async function refreshRegisterDay(){
-    try{ currentDay = await loadDay(registerDate); }
-    catch(e){ console.error('loadDay failed', e); currentDay = emptyDay(registerDate); toast('데이터를 불러오지 못했습니다'); }
-    if(!currentDay) currentDay = emptyDay(registerDate);
+    const my = ++registerReqToken;
+    const wantDate = registerDate;
+    const spin = document.getElementById('registerLoading');
+    spin.classList.add('show');
+    document.getElementById('startRegisterBtn').disabled = true;
+    let day = null;
+    try{ day = await loadDay(wantDate); }
+    catch(e){ console.error('loadDay failed', e); toast('데이터를 불러오지 못했습니다'); }
+    if(my !== registerReqToken) return;   // 더 최신 요청이 있으면 이 결과는 버린다
+    currentDay = day || emptyDay(wantDate);
     padDayB(currentDay);
     renderASlots();
     renderBStatus();
+    spin.classList.remove('show');
+    document.getElementById('startRegisterBtn').disabled = false;
   }
   // allBCategories()가 나중에 늘어나도 B 배열 길이가 모자라 터지지 않게 채워둔다.
   function padDayB(day){
@@ -752,10 +777,20 @@
     exportDateInput.value = exportDate;
     exportDateInput.dispatchEvent(new Event('change'));
   });
+  let exportReqToken = 0;
   async function refreshExportDay(){
-    try{ exportDay = await loadDay(exportDate); }
-    catch(e){ console.error('loadDay failed', e); exportDay = emptyDay(exportDate); toast('데이터를 불러오지 못했습니다'); }
-    if(!exportDay) exportDay = emptyDay(exportDate);
+    const my = ++exportReqToken;
+    const wantDate = exportDate;
+    const spin = document.getElementById('exportLoading');
+    spin.classList.add('show');
+    document.getElementById('exportXlsxBtn').disabled = true;
+    let day = null;
+    try{ day = await loadDay(wantDate); }
+    catch(e){ console.error('loadDay failed', e); toast('데이터를 불러오지 못했습니다'); }
+    if(my !== exportReqToken) return;
+    exportDay = day || emptyDay(wantDate);
+    spin.classList.remove('show');
+    document.getElementById('exportXlsxBtn').disabled = false;
     padDayB(exportDay);
     // 사진이 사라진 항목이 선택 상태로 남아있으면 정리한다.
     Array.from(selectedExport).forEach(k=>{
@@ -842,15 +877,19 @@
     const wrap = document.getElementById('exportItemsList');
     if(!exportDay){ wrap.innerHTML=''; return; }
     let html = '';
-    const aHas = exportDay.A.some(s=>s);
-    html += buildExportCard('A', '일일 작업계획서 점검 결과 보고', aHas);
+    const aCnt = exportDay.A.filter(Boolean).length;
+    html += buildExportCard('A', '일일 작업계획서 점검 결과 보고', aCnt>0,
+      aCnt>0 ? `사진 ${aCnt}장 · 1페이지` : '');
     const a2Has = exportDay.A2.some(s=>s);
-    if(a2Has) html += buildExportCard('A2', LEGACY_A2_LABEL, true);
+    if(a2Has) html += buildExportCard('A2', LEGACY_A2_LABEL, true,
+      `사진 ${exportDay.A2.filter(Boolean).length}장 · 1페이지`);
     allBCategories().forEach((cat,i)=>{
       const b = exportDay.B[i];
       const has = b && b.photos.length > 0;
-      const label = has ? `${cat} (${normCut(b.cut)}컷)` : cat;
-      html += buildExportCard('B'+i, label, has);
+      const cutN = has ? normCut(b.cut) : 2;
+      const pages = has ? Math.ceil(b.photos.length / cutN) : 0;
+      html += buildExportCard('B'+i, cat, has,
+        has ? `${cutN}컷 · 사진 ${b.photos.length}장 · ${pages}페이지` : '');
     });
     wrap.innerHTML = html;
     wrap.querySelectorAll('.export-item-card').forEach(el=>{
@@ -858,13 +897,14 @@
       el.addEventListener('click', ()=>toggleExportKey(el.dataset.key));
     });
   }
-  function buildExportCard(key, label, has){
+  function buildExportCard(key, label, has, sub){
     const checked = selectedExport.has(key);
+    const subText = has ? (sub || '') : '사진 없음';
     return `<div class="export-item-card ${has?'':'disabled'}" data-key="${key}">
       <div class="checkbox-custom ${checked?'checked':''}"></div>
       <div class="ei-body">
         <div class="ei-label">${escapeHtml(label)}</div>
-        ${has?'':'<div class="ei-sub">사진 없음</div>'}
+        ${subText ? `<div class="ei-sub">${escapeHtml(subText)}</div>` : ''}
       </div>
     </div>`;
   }
@@ -1547,6 +1587,7 @@
   // 4컷 편집 상태: 항상 길이 4. null = 빈 칸.
   let modalASlots = [null,null,null,null];
   let pendingSlotIdx = null; // 특정 칸의 "사진 추가"를 눌렀을 때만 값이 들어간다
+  let modalOpenedAs = null;  // 모달을 열었을 때의 상태 (저장 안 하고 닫을 때 비교용)
 
   const A_GROUP_LABELS = { A: '일일 작업계획서 점검 결과 보고', A2: '고위험 특별 안전교육 (4컷)' };
 
@@ -1567,6 +1608,7 @@
     modalHint.style.display = 'block';
     modalHint.innerHTML = '사진을 <b>한 번에 최대 4장</b>까지 고를 수 있어요. 차량번호와 내용은 칸마다 따로 지정합니다.';
     renderModalPhotoGrid(4);
+    modalOpenedAs = JSON.stringify(modalSnapshot());
     modalOverlay.classList.add('show');
   }
 
@@ -1595,6 +1637,7 @@
     syncCutToggle();
     modalHint.style.display = 'block';
     renderModalPhotoGrid(null);
+    modalOpenedAs = JSON.stringify(modalSnapshot());
     modalOverlay.classList.add('show');
   }
 
@@ -1612,6 +1655,22 @@
       if(!modalMode || modalMode.type !== 'B') return;
       const next = parseInt(b.dataset.cut,10);
       if(next === modalMode.cut) return;
+      // 2컷 2세트(대한중기/삼성기업)를 4컷 1세트로 합치면 뒤 업체명이 사라진다.
+      // 조용히 날리지 않고 물어본다.
+      const merged = [];
+      for(let i=0;i<modalPhotos.length;i+=next){
+        const names = [];
+        for(let j=0;j<next;j++){
+          const c = modalPhotos[i+j] && (modalPhotos[i+j].company||'').trim();
+          if(c && names.indexOf(c) === -1) names.push(c);
+        }
+        if(names.length > 1) merged.push(names);
+      }
+      if(merged.length){
+        const keep = merged.map(n=>n[0]).join(', ');
+        const lost = merged.map(n=>n.slice(1).join(', ')).join(', ');
+        if(!confirm(`${next}컷으로 합치면 한 세트에 업체가 섞입니다.\n\n유지: ${keep}\n사라짐: ${lost}\n\n계속할까요?`)) return;
+      }
       modalMode.cut = next;
       syncCutToggle();
       syncSetCompanies();       // 세트 경계가 바뀌므로 업체명을 다시 맞춘다
@@ -1721,7 +1780,18 @@
 
       const head = document.createElement('div');
       head.className = 'set-head';
-      head.textContent = `${sIdx+1}세트 · ${per}컷`;
+      head.innerHTML = `<span>${sIdx+1}세트 · ${per}컷</span>`;
+      if(modalPhotos[i]){
+        const del = document.createElement('button');
+        del.type = 'button'; del.className = 'set-del';
+        del.textContent = '세트 삭제';
+        del.addEventListener('click', ()=>{
+          if(!confirm(`${sIdx+1}세트의 사진을 지울까요?`)) return;
+          modalPhotos.splice(i, per);     // 세트 단위로 통째로 지운다
+          renderModalPhotoGrid(maxCount);
+        });
+        head.appendChild(del);
+      }
       setWrap.appendChild(head);
 
       if(showCompany){
@@ -1742,13 +1812,16 @@
         if(modalPhotos[idx]){
           const slot = document.createElement('div');
           slot.className = 'modal-photo-slot';
-          slot.innerHTML = `<img src="${modalPhotos[idx].dataUrl}"><button class="rm-btn" data-idx="${idx}">✕</button>`;
+          slot.innerHTML = `<img src="${modalPhotos[idx].dataUrl}"><div class="slot-swap">눌러서 교체</div>`;
+          // 사진 한 장만 빼면 뒤 세트 사진이 앞 세트로 밀려들어와 업체명이
+          // 엉킨다. 그래서 개별 삭제 대신 "그 자리 교체"만 허용한다.
+          slot.addEventListener('click', ()=>{ pendingSlotIdx = idx; modalFileInput.click(); });
           photoRow.appendChild(slot);
         } else {
           const addBtn = document.createElement('div');
           addBtn.className = 'add-photo-btn';
           addBtn.innerHTML = '<div class="plus">＋</div><div>사진 추가</div>';
-          addBtn.addEventListener('click', ()=>{ pendingSlotIdx = null; modalFileInput.click(); });
+          addBtn.addEventListener('click', ()=>{ pendingSlotIdx = idx; modalFileInput.click(); });
           photoRow.appendChild(addBtn);
         }
       }
@@ -1766,13 +1839,6 @@
       modalPhotoGrid.appendChild(addSetBtn);
     }
 
-    modalPhotoGrid.querySelectorAll('.rm-btn').forEach(b=>{
-      b.addEventListener('click', ()=>{
-        modalPhotos.splice(parseInt(b.dataset.idx),1);
-        syncSetCompanies();
-        renderModalPhotoGrid(maxCount);
-      });
-    });
   }
 
   modalFileInput.addEventListener('change', async (e)=>{
@@ -1781,6 +1847,13 @@
     if(!files.length) return;
     const btnSave = document.getElementById('modalSaveBtn');
     btnSave.disabled = true;
+    // 큰 사진 여러 장은 압축에 몇 초씩 걸린다. 아무 표시가 없으면 멈춘 줄 알고
+    // 버튼을 또 누르게 되므로 진행 상황을 보여준다.
+    const busy = document.createElement('div');
+    busy.className = 'modal-busy show';
+    busy.textContent = `사진 처리 중… (0/${files.length})`;
+    modalPhotoGrid.prepend(busy);
+    const tick = (n)=>{ busy.textContent = `사진 처리 중… (${n}/${files.length})`; };
 
     try{
       if(modalMode && modalMode.type === 'A'){
@@ -1797,6 +1870,7 @@
           if(used >= targets.length) break;
           try{
             const dataUrl = await compressFile(f, 1000);
+            tick(used+1);
             const idx = targets[used];
             const prev = modalASlots[idx];
             modalASlots[idx] = {
@@ -1813,22 +1887,45 @@
         }
         renderModalPhotoGrid(4);
       } else {
+        const start = (pendingSlotIdx === null) ? modalPhotos.length : pendingSlotIdx;
+        let at = start;
         for(const f of files){
           try{
             const dataUrl = await compressFile(f, 1000);
-            modalPhotos.push({dataUrl, company:''});
+            tick(at - start + 1);
+            const keep = modalPhotos[at] ? modalPhotos[at].company : '';
+            modalPhotos[at] = {dataUrl, company: keep};   // 그 자리에 채우거나 교체
+            at++;
           }catch(err){ console.error(err); }
         }
+        // 교체하다 중간이 비면(있을 수 없지만 방어) 앞으로 당긴다
+        modalPhotos = modalPhotos.filter(Boolean);
         pendingSlotIdx = null;
         syncSetCompanies();
         renderModalPhotoGrid(null);
       }
     } finally {
+      busy.remove();
       btnSave.disabled = false;
     }
   });
 
-  document.getElementById('modalCancelBtn').addEventListener('click', closeModal);
+  document.getElementById('modalCancelBtn').addEventListener('click', ()=>{
+    if(modalDirty() && !confirm('저장하지 않은 변경사항이 사라집니다. 닫을까요?')) return;
+    closeModal();
+  });
+  // 열었을 때와 지금이 다른지 (사진·내용·업체명·컷수)
+  function modalDirty(){
+    if(!modalMode) return false;
+    return JSON.stringify(modalSnapshot()) !== modalOpenedAs;
+  }
+  function modalSnapshot(){
+    if(!modalMode) return null;
+    if(modalMode.type === 'A'){
+      return modalASlots.map(s=>s ? [s.dataUrl.length, s.caption||'', s.vehicle||''] : null);
+    }
+    return [normCut(modalMode.cut), modalPhotos.map(p=>[p.dataUrl.length, p.company||''])];
+  }
   function closeModal(){
     modalOverlay.classList.remove('show');
     modalMode = null; modalPhotos = [];
@@ -1846,6 +1943,9 @@
       let ok;
       if(modalMode.type === 'A'){
         const g = modalMode.group || 'A';
+        const noCap = [];
+        modalASlots.forEach((sl,i)=>{ if(sl && !(sl.caption||'').trim()) noCap.push(i+1); });
+        if(noCap.length && !confirm(`${noCap.join(', ')}번 칸의 "내용"이 비어 있습니다.\n엑셀에 내용 없이 인쇄됩니다. 이대로 저장할까요?`)){ return; }
         ok = true;
         for(let i=0;i<4;i++){
           const before = currentDay[g][i];
@@ -1863,6 +1963,14 @@
         }
       } else {
         syncSetCompanies();
+        const per = normCut(modalMode.cut);
+        const before = currentDay.B[modalMode.cat].photos.length;
+        const rest = modalPhotos.length % per;
+        if(modalPhotos.length === 0 && before > 0){
+          if(!confirm(`등록된 사진 ${before}장이 모두 지워집니다. 계속할까요?`)){ return; }
+        } else if(rest !== 0){
+          if(!confirm(`마지막 세트에 사진이 ${rest}장뿐입니다.\n인쇄하면 ${per-rest}칸이 빈 채로 나옵니다. 이대로 저장할까요?`)){ return; }
+        }
         const photosArr = modalPhotos.map(p=>({dataUrl:p.dataUrl, company:(p.company||'').trim()}));
         currentDay.B[modalMode.cat].photos = photosArr;
         currentDay.B[modalMode.cat].cut = normCut(modalMode.cut);
