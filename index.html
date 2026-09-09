@@ -261,7 +261,7 @@
     <div>
       <h1>현장 안전점검 사진대지</h1>
       <div class="tagline">&lt;안전 쫄따구들의 업무 간소화&gt;</div>
-      <div class="sub">광주학동4구역 재개발현장 · 촬영-등록-엑셀 붙여넣기</div>
+      <div class="sub">아이파크무등산스카이포레 · 촬영-등록-엑셀 붙여넣기</div>
     </div>
   </div>
 </div>
@@ -480,7 +480,7 @@
     "작업구간 이동식cctv 설치 상태 확인"
   ];
   const DEFAULT_SETTINGS = {
-    siteName: "광주학동4구역 재개발현장",
+    siteName: "아이파크무등산스카이포레",
     company: "IPARK 현대산업개발",
     logo: DEFAULT_LOGO,
     damdang: "", anjeon: "", sojang: ""
@@ -653,6 +653,11 @@
     let raw = await sGet('settings');
     if(raw){ try{ settings = JSON.parse(raw); }catch(e){ settings = {...DEFAULT_SETTINGS}; } }
     else { settings = {...DEFAULT_SETTINGS}; await sSet('settings', JSON.stringify(settings)); }
+    // 현장이 바뀌었다: 저장된 값이 옛 기본값 그대로일 때만 새 이름으로 올린다.
+    if(settings && settings.siteName === '광주학동4구역 재개발현장'){
+      settings.siteName = DEFAULT_SETTINGS.siteName;
+      await sSet('settings', JSON.stringify(settings));
+    }
 
     let rawP = await sGet('phrases');
     if(rawP){ try{ phrases = JSON.parse(rawP); }catch(e){ phrases = [...DEFAULT_PHRASES]; } }
@@ -664,7 +669,17 @@
     document.getElementById('settingSiteName').value = settings.siteName || '';
     document.getElementById('settingCompany').value = settings.company || '';
     document.getElementById('logoPreview').src = settings.logo || DEFAULT_LOGO;
+    applySiteNameToHeader();
     renderPhraseList();
+  }
+
+  function applySiteNameToHeader(){
+    const el = document.querySelector('.app-header .sub');
+    if(el) el.textContent = (siteName()) + ' · 촬영-등록-엑셀 붙여넣기';
+  }
+  // 갑지에 찍히는 현장명. 설정 탭 값이 있으면 그걸 쓴다.
+  function siteName(){
+    return (settings && settings.siteName) ? settings.siteName : DEFAULT_SETTINGS.siteName;
   }
 
   function renderPhraseList(){
@@ -697,7 +712,7 @@
     if(settings._pendingLogo){ settings.logo = settings._pendingLogo; delete settings._pendingLogo; }
     const ok = await sSet('settings', JSON.stringify(settings));
     toast(ok ? '설정 저장 완료' : '저장 실패');
-    document.querySelector('.app-header .sub').textContent = settings.siteName + ' · 촬영-등록-엑셀 붙여넣기';
+    applySiteNameToHeader();
   });
   document.getElementById('addPhraseBtn').addEventListener('click', ()=>{ phrases.push(''); renderPhraseList(); });
   document.getElementById('savePhrasesBtn').addEventListener('click', async ()=>{
@@ -981,6 +996,18 @@
   // 다른 양식이면 제목칸 안쪽만 흰색으로 덮고 새 제목을 다시 그린다.
   // (엑셀 출력은 B8 셀 값을 바꾸므로 이건 화면 미리보기 전용)
   const COVER_TITLE_BOX = { x:101, y:209, w:723, h:166 }; // 900x1301 기준, 테두리 안쪽
+  const COVER_SITE_BOX  = { x:150, y:1068, w:612, h:62 };  // 현장명 줄 (오른쪽 회색 도형은 안 건드림)
+
+  // 상자 안에 들어가도록 글자 크기를 줄여가며 가운데 정렬로 그린다
+  function drawFittedCenter(ctx, text, box, maxSize, minSize){
+    let size = maxSize;
+    do {
+      ctx.font = `bold ${size}px "Malgun Gothic","Apple SD Gothic Neo",sans-serif`;
+      if(ctx.measureText(text).width <= box.w - 30) break;
+      size -= 2;
+    } while(size > minSize);
+    ctx.fillText(text, box.x + box.w/2, box.y + box.h/2);
+  }
   async function renderCoverCanvas(entry, coverTitle){
     const canvas = document.createElement('canvas');
     canvas.width = COVER_W; canvas.height = COVER_H;
@@ -992,21 +1019,21 @@
       ctx.drawImage(bgImg, 0, 0, COVER_W, COVER_H);
     }catch(e){ console.error('cover background draw failed', e); }
 
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+
     // 제목 (기본 양식이면 배경에 이미 있으므로 건드리지 않는다)
     if(coverTitle && coverTitle !== A_FORMS.A.coverTitle){
-      const b = COVER_TITLE_BOX;
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.fillRect(COVER_TITLE_BOX.x, COVER_TITLE_BOX.y, COVER_TITLE_BOX.w, COVER_TITLE_BOX.h);
       ctx.fillStyle = '#000000';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      let size = 52;
-      do {
-        ctx.font = `bold ${size}px "Malgun Gothic","Apple SD Gothic Neo",sans-serif`;
-        if(ctx.measureText(coverTitle).width <= b.w - 40) break;
-        size -= 2;
-      } while(size > 22);
-      ctx.fillText(coverTitle, b.x + b.w/2, b.y + b.h/2);
+      drawFittedCenter(ctx, coverTitle, COVER_TITLE_BOX, 52, 22);
     }
+
+    // 현장명 (배경 이미지에 옛 현장명이 박혀 있어서 항상 덮어 그린다)
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(COVER_SITE_BOX.x, COVER_SITE_BOX.y, COVER_SITE_BOX.w, COVER_SITE_BOX.h);
+    ctx.fillStyle = '#000000';
+    drawFittedCenter(ctx, siteName(), COVER_SITE_BOX, 44, 18);
 
     // date -- the only dynamic element; drawn back in at the exact spot it was erased from
     const dateCX = COVER_W/2, dateY = 0.4906*COVER_H, dateH = 0.0630*COVER_H;
@@ -1318,6 +1345,8 @@
         const parts = spec.entry.date.split('-');
         ws.getCell('D22').value = `${parts[0]}년 ${parseInt(parts[1])}월 ${parseInt(parts[2])}일`;
         if(spec.coverTitle) ws.getCell('B8').value = spec.coverTitle;
+        // 현장명도 설정 탭 값을 따른다 (예전엔 템플릿에 박힌 값이 그대로 나갔다)
+        ws.getCell('D35').value = siteName();
         continue;
       }
 
