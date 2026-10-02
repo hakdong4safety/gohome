@@ -193,6 +193,11 @@
   .modal-photo-slot .rm-btn{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.6);color:#fff;border:none;width:24px;height:24px;border-radius:50%;font-size:13px;line-height:1;}
   .add-photo-btn{border:1.5px dashed var(--amber);border-radius:12px;aspect-ratio:4/3;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#FFF9EF;color:var(--amber-dark);font-size:12.5px;font-weight:700;gap:4px;}
   .add-photo-btn .plus{font-size:22px;line-height:1;}
+  .sh-note{font-size:11px;font-weight:700;color:var(--text-dim);margin-left:6px;}
+  .f-add-card{border:1.5px dashed var(--line-soft);border-radius:12px;padding:14px;text-align:center;
+    font-size:13px;font-weight:700;color:var(--navy);background:#fff;margin-bottom:8px;cursor:pointer;}
+  .f-title-input{width:100%;font-size:14px;font-weight:700;padding:11px 12px;margin-bottom:12px;}
+  .f-cap-input{width:100%;font-size:12px;padding:7px 9px;margin-top:6px;}
   .day-loading{display:none;background:#EEF3F7;color:var(--navy);font-size:12.5px;font-weight:700;
     border-radius:9px;padding:9px 12px;margin-bottom:12px;text-align:center;}
   .day-loading.show{display:block;}
@@ -295,6 +300,9 @@
 
       <div class="section-heading"><span class="sh-mark"></span>사진대지 등록 현황</div>
       <div id="bStatusList"></div>
+
+      <div class="section-heading" style="margin-top:26px;"><span class="sh-mark"></span>자유 사진대지 <span class="sh-note">제목 직접 입력</span></div>
+      <div id="fStatusList"></div>
     </div>
   </div>
 
@@ -574,13 +582,15 @@
   }
 
   function emptyDay(date){
-    return { date, A: [null,null,null,null], A2: [null,null,null,null], B: allBCategories().map(()=>({photos:[], cut:2})) };
+    return { date, A: [null,null,null,null], A2: [null,null,null,null], B: allBCategories().map(()=>({photos:[], cut:2})),
+             F: [] };   // 자유 사진대지: [{title, cut, photos:[{dataUrl, company, caption}]}]
   }
   function normalizeDay(d, date){
     const nd = emptyDay(date);
     if(d && d.A) for(let i=0;i<4;i++){ if(d.A[i]) nd.A[i]=d.A[i]; }
     if(d && d.A2) for(let i=0;i<4;i++){ if(d.A2[i]) nd.A2[i]=d.A2[i]; }
     if(d && d.B) for(let i=0;i<nd.B.length;i++){ if(d.B[i]) nd.B[i]=d.B[i]; }
+    if(d && Array.isArray(d.F)) nd.F = d.F;
     return nd;
   }
   // Each A-slot and each B-category is stored as its own Firestore document
@@ -602,6 +612,10 @@
         if(raw){ try{ day.B[i] = JSON.parse(raw); }catch(e){} }
       }));
     }
+    // 자유 사진대지는 개수가 정해져 있지 않아 하루치를 키 하나에 묶어 둔다
+    jobs.push(sGet(`day:${date}:F`).then(raw=>{
+      if(raw){ try{ const f = JSON.parse(raw); if(Array.isArray(f)) day.F = f; }catch(e){} }
+    }));
     await Promise.all(jobs);
     return day;
   }
@@ -611,6 +625,9 @@
   }
   async function saveBCategory(date, idx, photosArr, cut){
     return await sSet(`day:${date}:B${idx}`, JSON.stringify({photos:photosArr, cut:normCut(cut)}));
+  }
+  async function saveFreeSheets(date, list){
+    return await sSet(`day:${date}:F`, JSON.stringify(list || []));
   }
 
   // ---------- custom (직접입력) B categories ----------
@@ -774,6 +791,10 @@
   function padDayB(day){
     if(!day) return;
     if(!Array.isArray(day.B)) day.B = [];
+    if(!Array.isArray(day.F)) day.F = [];
+    day.F = day.F.filter(f=>f && typeof f === 'object').map(f=>({
+      title: (f.title||'').trim() || '사진대지', cut: normCut(f.cut), photos: Array.isArray(f.photos) ? f.photos : []
+    }));
     while(day.B.length < allBCategories().length) day.B.push({photos:[], cut:2});
     for(let i=0;i<day.B.length;i++){
       if(!day.B[i] || !Array.isArray(day.B[i].photos)) day.B[i] = {photos:[], cut:2};
@@ -813,6 +834,11 @@
     Array.from(selectedExport).forEach(k=>{
       if(k === 'A'){ if(!exportDay.A.some(x=>x)) selectedExport.delete(k); return; }
       if(k === 'A2'){ if(!exportDay.A2.some(x=>x)) selectedExport.delete(k); return; }
+      if(k[0] === 'F'){
+        const fi = parseInt(k.slice(1), 10);
+        if(!exportDay.F[fi] || exportDay.F[fi].photos.length === 0) selectedExport.delete(k);
+        return;
+      }
       const bi = parseInt(k.slice(1), 10);
       if(!exportDay.B[bi] || exportDay.B[bi].photos.length === 0) selectedExport.delete(k);
     });
@@ -888,6 +914,27 @@
     wrap.querySelectorAll('.cat-card').forEach(el=>{
       el.addEventListener('click', ()=>openBCategoryModal(parseInt(el.dataset.cat)));
     });
+    renderFStatus();
+  }
+
+  // 자유 사진대지 현황: 그날 만든 것들 + "새로 만들기"
+  function renderFStatus(){
+    const wrap = document.getElementById('fStatusList');
+    if(!wrap || !currentDay) return;
+    let html = '';
+    (currentDay.F || []).forEach((f,i)=>{
+      const cnt = f.photos.length, cut = normCut(f.cut);
+      html += `<div class="cat-card" data-f="${i}">
+        <div class="cat-title">${escapeHtml(f.title)}</div>
+        <div class="cat-badge on">${cnt}장 · ${Math.ceil(cnt/cut)}세트<span class="cut-tag">${cut}컷</span></div>
+      </div>`;
+    });
+    html += `<div class="f-add-card" id="fAddCard">✏️ 새 자유 사진대지 만들기</div>`;
+    wrap.innerHTML = html;
+    wrap.querySelectorAll('.cat-card').forEach(el=>{
+      el.addEventListener('click', ()=>openFreeSheetModal(parseInt(el.dataset.f)));
+    });
+    document.getElementById('fAddCard').addEventListener('click', ()=>openFreeSheetModal(-1, 2));
   }
 
   // ---------- export item cards ----------
@@ -908,6 +955,11 @@
       const pages = has ? Math.ceil(b.photos.length / cutN) : 0;
       html += buildExportCard('B'+i, cat, has,
         has ? `${cutN}컷 · 사진 ${b.photos.length}장 · ${pages}페이지` : '');
+    });
+    (exportDay.F || []).forEach((f,i)=>{
+      const c = normCut(f.cut);
+      html += buildExportCard('F'+i, '✏️ ' + f.title, f.photos.length>0,
+        `${c}컷 · 사진 ${f.photos.length}장 · ${Math.ceil(f.photos.length/c)}페이지`);
     });
     wrap.innerHTML = html;
     wrap.querySelectorAll('.export-item-card').forEach(el=>{
@@ -1126,7 +1178,7 @@
       ctx.strokeRect(boxX, blockY, boxW, titleH);
       ctx.fillStyle = '#1B2A4A'; ctx.font = `bold ${Math.round(titleH*0.42)}px "Malgun Gothic",sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('사 진 대 지', PAGE_W/2, blockY+titleH/2);
+      ctx.fillText(entry.header ? entry.header : '사 진 대 지', PAGE_W/2, blockY+titleH/2);
 
       const capH = Math.min(40, blockH*0.09);
       const photoY = blockY+titleH+14;
@@ -1144,7 +1196,7 @@
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       const [dy2,dm2,dd2] = entry.date.split('-');
       const photoCompany = photosChunk[i].company;
-      const capText = `${dy2}.${dm2}.${dd2} ${photoCompany ? '['+photoCompany+'] ' : ''}${entry.category}`;
+      const capText = `${dy2}.${dm2}.${dd2} ${photoCompany ? '['+photoCompany+'] ' : ''}${bCaptionBody(photosChunk[i], entry)}`;
       const { lines: capLines, lineHeight: capLH } = fitTextToBox(ctx, capText, boxW-16, capH-8, Math.round(capH*0.42), 10);
       const capStartY = capY+capH/2 - (capLines.length-1)*capLH/2;
       capLines.forEach((ln,idx)=>ctx.fillText(ln, PAGE_W/2, capStartY+idx*capLH));
@@ -1154,11 +1206,16 @@
   }
 
   // 사진대지 캡션: 날짜 → 협력업체 → 항목명 (2컷·4컷 동일)
+  // 사진대지 캡션 마지막 줄: 사진에 적은 내용 → 없으면 항목명(자유 사진대지는 제목)
+  function bCaptionBody(photo, entry){
+    const c = photo && (photo.caption||'').trim();
+    return c || entry.category;
+  }
   function buildBCaptionLines(photo, entry){
     const [y,m,d] = entry.date.split('-');
     const lines = [`${y}.${m}.${d}`];
     if(photo && photo.company) lines.push(`[${photo.company}]`);
-    lines.push(entry.category);
+    lines.push(bCaptionBody(photo, entry));
     return lines;
   }
 
@@ -1176,7 +1233,7 @@
     ctx.fillStyle = '#9AA6AF'; ctx.fillRect(hbX+10, hbY+hbH*0.2, 5, hbH*0.6);
     ctx.fillStyle = '#222'; ctx.font = 'bold 20px "Malgun Gothic",sans-serif';
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText('사진대지', hbX+26, hbY+hbH/2);
+    ctx.fillText(entry.header ? entry.header : '사진대지', hbX+26, hbY+hbH/2);
 
     const gridX = PAGE_W*0.06, gridY = hbY+hbH+PAGE_H*0.02, gridW = PAGE_W*0.88;
     const gap = PAGE_W*0.025;
@@ -1389,7 +1446,7 @@
         const cut = (spec.cut === 4) ? 4 : 2;
         const ws = cloneSheet(gridModel, sheetName, cut === 2 ? B_MERGE_MAP : null);
         applyCenteredPrint(ws, 'K43');
-        ws.getCell('A1').value = '    사진대지';
+        ws.getCell('A1').value = '    ' + (spec.entry.header || '사진대지');
         const blocks = cut === 2
           ? [ { photo:'B6:J18',  cap:'B20:J22' },
               { photo:'B25:J37', cap:'B39:J41' } ]
@@ -1404,7 +1461,7 @@
           const photo = spec.chunk[i];
           const capAddr = b.cap.split(':')[0];
           const capCell = ws.getCell(capAddr);
-          capCell.value = `${yy}.${mm}.${dd}` + (photo.company ? `\n[${photo.company}]` : '') + `\n${spec.entry.category}`;
+          capCell.value = `${yy}.${mm}.${dd}` + (photo.company ? `\n[${photo.company}]` : '') + `\n${bCaptionBody(photo, spec.entry)}`;
           capCell.alignment = Object.assign({}, capCell.alignment, { wrapText:true, vertical:'middle', horizontal:'center' });
           const pr = b.photo.split(':');
           const tl = ws.getCell(pr[0]);
@@ -1444,6 +1501,7 @@
       if(exportDay.A.some(s=>s)) selectedExport.add('A');
       if(exportDay.A2.some(s=>s)) selectedExport.add('A2');
       allBCategories().forEach((c,i)=>{ if(exportDay.B[i] && exportDay.B[i].photos.length>0) selectedExport.add('B'+i); });
+      (exportDay.F || []).forEach((f,i)=>{ if(f.photos.length>0) selectedExport.add('F'+i); });
       autoFilled = true;
       renderExportItems();
     }
@@ -1463,6 +1521,13 @@
           photos: exportDay.B[i].photos,
           cut: normCut(exportDay.B[i].cut)
         });
+      }
+    });
+    (exportDay.F || []).forEach((f,i)=>{
+      if(selectedExport.has('F'+i)){
+        // 자유 사진대지: 사진대지(B)와 같은 틀에 제목만 따로 올린다
+        entries.push({ formType:'B', free:true, category: f.title, header: f.title, date: exportDate,
+                       photos: f.photos, cut: normCut(f.cut) });
       }
     });
 
@@ -1595,13 +1660,23 @@
         <div class="cat-badge ${has?'on':'off'}">${badge}</div>
       </div>`;
     });
-    html += `<div class="start-add-custom" id="startAddCustom">+ 직접 입력</div></div>`;
+    html += `<div class="start-add-custom" id="startAddCustom">+ 직접 입력 (목록에 항목 추가)</div>`;
+    // 자유 사진대지: 그날 만든 것 + 새로 만들기
+    (currentDay.F || []).forEach((f,i)=>{
+      const c = normCut(f.cut);
+      html += `<div class="cat-card" data-free="${i}">
+        <div class="cat-title">✏️ ${escapeHtml(f.title)}</div>
+        <div class="cat-badge on">${f.photos.length}장 등록됨<span class="cut-tag">${c}컷</span></div>
+      </div>`;
+    });
+    html += `<div class="start-add-custom" id="startAddFree">✏️ 자유 사진대지 (제목 직접 입력)</div></div>`;
     body.innerHTML = html;
 
     body.querySelectorAll('.cat-card').forEach(el=>{
       el.addEventListener('click', ()=>{
         closeStartModal();
         if(el.dataset.group) openASlotModal(0, el.dataset.group);
+        else if(el.dataset.free !== undefined) openFreeSheetModal(parseInt(el.dataset.free), cut);
         else openBCategoryModal(parseInt(el.dataset.idx), cut);
       });
     });
@@ -1613,6 +1688,10 @@
       padDayB(currentDay);
       closeStartModal();
       openBCategoryModal(idx, cut);
+    });
+    document.getElementById('startAddFree').addEventListener('click', ()=>{
+      closeStartModal();
+      openFreeSheetModal(-1, cut);
     });
   }
   function closeStartModal(){ startModalEl.classList.remove('show'); }
@@ -1711,18 +1790,47 @@
     modalOverlay.classList.add('show');
   }
 
+  // 자유 사진대지 열기. idx = -1 이면 새로 만든다.
+  function openFreeSheetModal(idx, cut){
+    if(!currentDay){ toast('데이터를 아직 불러오는 중입니다'); return; }
+    padDayB(currentDay);
+    const stored = idx >= 0 ? currentDay.F[idx] : null;
+    modalMode = {
+      type:'F',
+      idx,
+      title: stored ? stored.title : '',
+      cut: normCut(cut === undefined ? (stored ? stored.cut : 2) : cut),
+      showCompany: true
+    };
+    modalPhotos = stored ? stored.photos.map(p=>({dataUrl:p.dataUrl, company:p.company||'', caption:p.caption||''})) : [];
+    modalTitle.textContent = stored ? `자유 사진대지 · ${stored.title}` : '새 자유 사진대지';
+    modalCutToggle.style.display = 'flex';
+    syncCutToggle();
+    modalHint.style.display = 'block';
+    renderModalPhotoGrid(null);
+    modalOpenedAs = JSON.stringify(modalSnapshot());
+    modalOverlay.classList.add('show');
+    const t = modalPhotoGrid.querySelector('.f-title-input');
+    if(t && !stored) setTimeout(()=>t.focus(), 50);
+  }
+
   function syncCutToggle(){
-    const cut = modalMode && modalMode.type === 'B' ? modalMode.cut : 2;
+    const cut = isSetMode() ? modalMode.cut : 2;
     modalCutToggle.querySelectorAll('button').forEach(b=>{
       b.classList.toggle('on', parseInt(b.dataset.cut,10) === cut);
     });
-    modalHint.innerHTML = `사진 <b>${cut}장이 1세트</b>이고, 한 세트가 A4 한 장이 됩니다. 협력업체는 세트마다 지정합니다.`
-      + '<br>인쇄 내용은 <b>날짜 → 협력업체 → 항목명</b> 순이고, 협력업체를 비워두면 그 줄은 빠집니다.';
+    if(modalMode && modalMode.type === 'F'){
+      modalHint.innerHTML = `제목은 인쇄물 맨 위에 들어갑니다. 사진 <b>${cut}장이 1세트</b>이고, 한 세트가 A4 한 장이 됩니다.`
+        + '<br>사진마다 <b>내용</b>을 적을 수 있고, 비워두면 제목이 대신 들어갑니다. 인쇄 내용은 <b>날짜 → 협력업체 → 내용</b> 순입니다.';
+    } else {
+      modalHint.innerHTML = `사진 <b>${cut}장이 1세트</b>이고, 한 세트가 A4 한 장이 됩니다. 협력업체는 세트마다 지정합니다.`
+        + '<br>인쇄 내용은 <b>날짜 → 협력업체 → 항목명</b> 순이고, 협력업체를 비워두면 그 줄은 빠집니다.';
+    }
   }
 
   modalCutToggle.querySelectorAll('button').forEach(b=>{
     b.addEventListener('click', ()=>{
-      if(!modalMode || modalMode.type !== 'B') return;
+      if(!isSetMode()) return;
       const next = parseInt(b.dataset.cut,10);
       if(next === modalMode.cut) return;
       // 2컷 2세트(대한중기/삼성기업)를 4컷 1세트로 합치면 뒤 업체명이 사라진다.
@@ -1750,7 +1858,8 @@
 
   // 한 세트(사진 2장) 안에서는 업체명을 항상 같이 맞춰준다.
   // 예전에는 업체명을 먼저 치고 두 번째 사진을 추가하면 그 사진만 업체명이 비었다.
-  function setSize(){ return (modalMode && modalMode.type === 'B') ? normCut(modalMode.cut) : 2; }
+  function isSetMode(){ return !!(modalMode && (modalMode.type === 'B' || modalMode.type === 'F')); }
+  function setSize(){ return isSetMode() ? normCut(modalMode.cut) : 2; }
   function syncSetCompanies(){
     const n = setSize();
     for(let i=0;i<modalPhotos.length;i+=n){
@@ -1840,8 +1949,19 @@
     }
 
     // ---------- 사진대지(B): 세트 단위(2컷=2장 / 4컷=4장)로 묶어서 보여준다 ----------
-    const showCompany = modalMode && modalMode.type === 'B' && modalMode.showCompany;
+    const showCompany = isSetMode() && modalMode.showCompany;
+    const isFree = modalMode && modalMode.type === 'F';
     const per = setSize();
+
+    // 자유 사진대지: 제목 입력칸이 맨 위
+    if(isFree){
+      const tIn = document.createElement('input');
+      tIn.type = 'text'; tIn.className = 'f-title-input';
+      tIn.placeholder = '제목 (예: 추락방지망 설치 점검)';
+      tIn.value = modalMode.title || '';
+      tIn.addEventListener('input', ()=>{ modalMode.title = tIn.value; });
+      modalPhotoGrid.appendChild(tIn);
+    }
     const setCount = Math.max(1, Math.ceil(modalPhotos.length / per));
 
     for(let sIdx=0; sIdx<setCount; sIdx++){
@@ -1887,7 +2007,19 @@
           // 사진 한 장만 빼면 뒤 세트 사진이 앞 세트로 밀려들어와 업체명이
           // 엉킨다. 그래서 개별 삭제 대신 "그 자리 교체"만 허용한다.
           slot.addEventListener('click', ()=>{ pendingSlotIdx = idx; modalFileInput.click(); });
-          photoRow.appendChild(slot);
+          if(isFree){
+            const cell = document.createElement('div');
+            cell.appendChild(slot);
+            const cIn = document.createElement('input');
+            cIn.type = 'text'; cIn.className = 'f-cap-input';
+            cIn.placeholder = '내용 (비우면 제목)';
+            cIn.value = modalPhotos[idx].caption || '';
+            cIn.addEventListener('input', ()=>{ modalPhotos[idx].caption = cIn.value; });
+            cell.appendChild(cIn);
+            photoRow.appendChild(cell);
+          } else {
+            photoRow.appendChild(slot);
+          }
         } else {
           const addBtn = document.createElement('div');
           addBtn.className = 'add-photo-btn';
@@ -1964,8 +2096,8 @@
           try{
             const dataUrl = await compressFile(f, 1000);
             tick(at - start + 1);
-            const keep = modalPhotos[at] ? modalPhotos[at].company : '';
-            modalPhotos[at] = {dataUrl, company: keep};   // 그 자리에 채우거나 교체
+            const prev = modalPhotos[at];
+            modalPhotos[at] = {dataUrl, company: prev ? prev.company : '', caption: prev ? (prev.caption||'') : ''};   // 그 자리에 채우거나 교체
             at++;
           }catch(err){ console.error(err); }
         }
@@ -1995,7 +2127,7 @@
     if(modalMode.type === 'A'){
       return modalASlots.map(s=>s ? [s.dataUrl.length, s.caption||'', s.vehicle||''] : null);
     }
-    return [normCut(modalMode.cut), modalPhotos.map(p=>[p.dataUrl.length, p.company||''])];
+    return [normCut(modalMode.cut), modalMode.title||'', modalPhotos.map(p=>[p.dataUrl.length, p.company||'', p.caption||''])];
   }
   function closeModal(){
     modalOverlay.classList.remove('show');
@@ -2032,6 +2164,25 @@
           const r = await saveASlot(registerDate, i, slotData, g);
           if(!r) ok = false;
         }
+      } else if(modalMode.type === 'F'){
+        syncSetCompanies();
+        const per = normCut(modalMode.cut);
+        const title = (modalMode.title || '').trim();
+        if(!title){ toast('제목을 입력해주세요'); return; }
+        const before = modalMode.idx >= 0 ? currentDay.F[modalMode.idx].photos.length : 0;
+        const rest = modalPhotos.length % per;
+        if(modalPhotos.length === 0){
+          if(modalMode.idx < 0){ toast('사진을 1장 이상 넣어주세요'); return; }
+          if(!confirm(`"${title}" 사진대지를 삭제합니다. 계속할까요?`)){ return; }
+          currentDay.F.splice(modalMode.idx, 1);
+        } else {
+          if(rest !== 0 && !confirm(`마지막 세트에 사진이 ${rest}장뿐입니다.\n인쇄하면 ${per-rest}칸이 빈 채로 나옵니다. 이대로 저장할까요?`)){ return; }
+          const sheet = { title, cut: per,
+            photos: modalPhotos.map(p=>({dataUrl:p.dataUrl, company:(p.company||'').trim(), caption:(p.caption||'').trim()})) };
+          if(modalMode.idx >= 0) currentDay.F[modalMode.idx] = sheet; else currentDay.F.push(sheet);
+        }
+        void before;
+        ok = await saveFreeSheets(registerDate, currentDay.F);
       } else {
         syncSetCompanies();
         const per = normCut(modalMode.cut);
