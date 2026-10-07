@@ -193,6 +193,10 @@
   .modal-photo-slot .rm-btn{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.6);color:#fff;border:none;width:24px;height:24px;border-radius:50%;font-size:13px;line-height:1;}
   .add-photo-btn{border:1.5px dashed var(--amber);border-radius:12px;aspect-ratio:4/3;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#FFF9EF;color:var(--amber-dark);font-size:12.5px;font-weight:700;gap:4px;}
   .add-photo-btn .plus{font-size:22px;line-height:1;}
+  .slot-page-label{grid-column:1/-1;font-size:11.5px;font-weight:800;color:var(--text-dim);margin:4px 0 -2px;}
+  .slot-card.add-page{border-style:dashed;color:var(--navy);}
+  .slot-card.add-page .slot-icon{font-size:26px;}
+  .a-page-label{grid-column:1/-1;font-size:12px;font-weight:800;color:var(--navy);background:#EEF3F7;border-radius:8px;padding:6px 10px;margin:4px 0 6px;}
   .sh-note{font-size:11px;font-weight:700;color:var(--text-dim);margin-left:6px;}
   .f-add-card{border:1.5px dashed var(--line-soft);border-radius:12px;padding:14px;text-align:center;
     font-size:13px;font-weight:700;color:var(--navy);background:#fff;margin-bottom:8px;cursor:pointer;}
@@ -588,7 +592,7 @@
   function normalizeDay(d, date){
     const nd = emptyDay(date);
     if(d && d.A) for(let i=0;i<4;i++){ if(d.A[i]) nd.A[i]=d.A[i]; }
-    if(d && d.A2) for(let i=0;i<4;i++){ if(d.A2[i]) nd.A2[i]=d.A2[i]; }
+    if(d && Array.isArray(d.A2)) nd.A2 = normalizeASlots('A2', d.A2);
     if(d && d.B) for(let i=0;i<nd.B.length;i++){ if(d.B[i]) nd.B[i]=d.B[i]; }
     if(d && Array.isArray(d.F)) nd.F = d.F;
     return nd;
@@ -603,10 +607,18 @@
       jobs.push(sGet(`day:${date}:A${i}`).then(raw=>{
         if(raw){ try{ day.A[i] = JSON.parse(raw); }catch(e){} }
       }));
-      jobs.push(sGet(`day:${date}:A2_${i}`).then(raw=>{
-        if(raw){ try{ day.A2[i] = JSON.parse(raw); }catch(e){} }
-      }));
     }
+    // A2는 칸 수가 가변. 개수 키(A2n)가 있으면 그만큼, 없으면 예전처럼 4칸.
+    jobs.push((async()=>{
+      let n = 4;
+      const rawN = await sGet(`day:${date}:A2n`);
+      if(rawN){ const v = parseInt(rawN, 10); if(v > 4) n = Math.ceil(v/4)*4; }
+      day.A2 = new Array(n).fill(null);
+      await Promise.all(Array.from({length:n}, (_, i)=>
+        sGet(`day:${date}:A2_${i}`).then(raw=>{
+          if(raw){ try{ const v = JSON.parse(raw); if(v) day.A2[i] = v; }catch(e){} }
+        })));
+    })());
     for(let i=0;i<day.B.length;i++){
       jobs.push(sGet(`day:${date}:B${i}`).then(raw=>{
         if(raw){ try{ day.B[i] = JSON.parse(raw); }catch(e){} }
@@ -622,6 +634,23 @@
   async function saveASlot(date, idx, slotData, group){
     const key = (group === 'A2') ? `day:${date}:A2_${idx}` : `day:${date}:A${idx}`;
     return await sSet(key, JSON.stringify(slotData));
+  }
+  // 한 양식의 칸 전체를 저장. 줄어든 칸은 비우고, 확장형이면 칸 수도 기록한다.
+  async function saveASlotsAll(date, group, slots, prevLen){
+    let ok = true;
+    for(let i=0;i<slots.length;i++){
+      const r = await saveASlot(date, i, slots[i] || null, group);
+      if(!r) ok = false;
+    }
+    for(let i=slots.length;i<(prevLen||0);i++){
+      const r = await saveASlot(date, i, null, group);
+      if(!r) ok = false;
+    }
+    if(A_FORMS[group] && A_FORMS[group].extensible){
+      const r = await sSet(`day:${date}:${group}n`, String(slots.length));
+      if(!r) ok = false;
+    }
+    return ok;
   }
   async function saveBCategory(date, idx, photosArr, cut){
     return await sSet(`day:${date}:B${idx}`, JSON.stringify({photos:photosArr, cut:normCut(cut)}));
@@ -791,6 +820,8 @@
   function padDayB(day){
     if(!day) return;
     if(!Array.isArray(day.B)) day.B = [];
+    day.A = normalizeASlots('A', day.A);
+    day.A2 = normalizeASlots('A2', day.A2);
     if(!Array.isArray(day.F)) day.F = [];
     day.F = day.F.filter(f=>f && typeof f === 'object').map(f=>({
       title: (f.title||'').trim() || '사진대지', cut: normCut(f.cut), photos: Array.isArray(f.photos) ? f.photos : []
@@ -854,8 +885,12 @@
     const grid = document.getElementById(gridId);
     if(!grid) return;
     const slots = currentDay[group];
+    const ext = !!(A_FORMS[group] && A_FORMS[group].extensible);
     let html = '';
-    for(let i=0;i<4;i++){
+    for(let i=0;i<slots.length;i++){
+      if(ext && i % 4 === 0 && slots.length > 4){
+        html += `<div class="slot-page-label">사진대지 ${i/4+1}페이지</div>`;
+      }
       const slot = slots[i];
       if(slot){
         html += `<div class="slot-card filled" data-slot="${i}">
@@ -872,9 +907,18 @@
         </div>`;
       }
     }
+    if(ext){
+      html += `<div class="slot-card add-page" data-addpage="1">
+        <div class="slot-icon">＋</div>
+        <div class="slot-empty-label">사진대지<br>1장 추가</div>
+      </div>`;
+    }
     grid.innerHTML = html;
     grid.querySelectorAll('.slot-card').forEach(el=>{
-      el.addEventListener('click', ()=>openASlotModal(parseInt(el.dataset.slot), group));
+      el.addEventListener('click', ()=>{
+        if(el.dataset.addpage){ openASlotModal(0, group, true); return; }
+        openASlotModal(parseInt(el.dataset.slot), group);
+      });
     });
   }
 
@@ -947,7 +991,7 @@
       aCnt>0 ? `갑지 + 사진 ${aCnt}장 · 2페이지` : '');
     const a2Cnt = exportDay.A2.filter(Boolean).length;
     html += buildExportCard('A2', A_FORMS.A2.label, a2Cnt>0,
-      a2Cnt>0 ? `갑지 + 사진 ${a2Cnt}장 · 2페이지` : '');
+      a2Cnt>0 ? `갑지 1장 + 사진대지 ${Math.ceil(a2Cnt/4)}장 (사진 ${a2Cnt}장) · ${1+Math.ceil(a2Cnt/4)}페이지` : '');
     allBCategories().forEach((cat,i)=>{
       const b = exportDay.B[i];
       const has = b && b.photos.length > 0;
@@ -1638,9 +1682,12 @@
     if(cut === 4){
       A_GROUPS.forEach(g=>{
         const filled = currentDay[g].filter(Boolean).length;
+        const badge = A_FORMS[g].extensible
+          ? (filled ? `${filled}장 · 사진대지 ${Math.ceil(filled/4)}장` : '미등록')
+          : `${filled}/4장 등록됨`;
         html += `<div class="cat-card ${filled>0?'':'cat-card-dim'}" data-group="${g}">
           <div class="cat-title">${escapeHtml(A_FORMS[g].label)}</div>
-          <div class="cat-badge ${filled>0?'on':'off'}">${filled}/4장 등록됨<span class="cut-tag">갑지 포함</span></div>
+          <div class="cat-badge ${filled>0?'on':'off'}">${badge}<span class="cut-tag">갑지 포함</span></div>
         </div>`;
       });
     }
@@ -1727,9 +1774,24 @@
       coverSheet:'갑지(고위험작업)',
       gridHeader:'고위험작업 특별안전교육 사진 대지',
       gridSheet:'고위험작업 특별안전교육',
-      tagLabel:'협력업체', tagPlaceholder:'예: 삼마도건'
+      tagLabel:'협력업체', tagPlaceholder:'예: 삼마도건',
+      extensible:true                  // 사진대지를 4칸씩 계속 추가할 수 있다 (갑지는 1장)
     }
   };
+  // 칸 배열을 양식 규칙에 맞춘다: 확장형은 4의 배수(최소 4), 아니면 정확히 4칸
+  function normalizeASlots(group, arr){
+    const a = Array.isArray(arr) ? arr.slice() : [];
+    if(A_FORMS[group] && A_FORMS[group].extensible){
+      while(a.length % 4 !== 0 || a.length < 4) a.push(null);
+      return a;
+    }
+    while(a.length < 4) a.push(null);
+    return a.slice(0,4);
+  }
+  // 저장 시 빈 칸을 앞으로 당긴다 (칸 번호 = 인쇄 위치가 되도록)
+  function compactASlots(group, arr){
+    return normalizeASlots(group, (arr||[]).filter(Boolean));
+  }
   const A_GROUPS = ['A','A2'];
   // 받침이 있으면 '과', 없으면 '와'
   function josaWa(w){
@@ -1740,22 +1802,29 @@
 
   // 4컷은 이제 칸 하나가 아니라 4칸 전체를 한 화면에서 편집한다.
   // (예전에는 한 번에 1장만 받아서, 사진을 4장 골라도 3장이 조용히 버려졌다.)
-  function openASlotModal(_slotIdx, group){
+  function openASlotModal(_slotIdx, group, addPage){
     group = group || 'A';
     if(!currentDay){ toast('데이터를 아직 불러오는 중입니다'); return; }
+    currentDay[group] = normalizeASlots(group, currentDay[group]);
     modalMode = {type:'A', group};
     pendingSlotIdx = null;
     modalPhotos = [];
-    modalASlots = [0,1,2,3].map(i=>{
-      const ex = currentDay[group][i];
-      return ex ? { dataUrl: ex.dataUrl, caption: ex.caption || '', vehicle: ex.vehicle || '' } : null;
-    });
+    modalASlots = currentDay[group].map(ex=>
+      ex ? { dataUrl: ex.dataUrl, caption: ex.caption || '', vehicle: ex.vehicle || '' } : null);
+    // "사진대지 1장 추가"로 들어왔으면 빈 페이지(4칸)를 하나 붙여서 연다
+    if(addPage && A_FORMS[group].extensible){
+      modalASlots.push(null,null,null,null);   // 안 쓰면 저장 때 저절로 사라진다
+    }
     modalTitle.textContent = A_FORMS[group].label;
     modalCutToggle.style.display = 'none';
     modalHint.style.display = 'block';
     const f = A_FORMS[group];
-    modalHint.innerHTML = `사진을 <b>한 번에 최대 4장</b>까지 고를 수 있어요. ${f.tagLabel}${josaWa(f.tagLabel)} 내용은 칸마다 따로 지정합니다.`
-      + `<br>인쇄 내용은 <b>내용 : [${f.tagLabel}]</b> 아래에 내용 문구가 들어가고, 비워두면 대괄호는 빠집니다.`;
+    modalHint.innerHTML = (f.extensible
+        ? `사진은 <b>몇 장이든</b> 넣을 수 있고 4장마다 사진대지가 한 장씩 늘어납니다. 갑지는 1장만 나갑니다. `
+        : `사진을 <b>한 번에 최대 4장</b>까지 고를 수 있어요. `)
+      + `${f.tagLabel}${josaWa(f.tagLabel)} 내용은 칸마다 따로 지정합니다.`
+      + `<br>인쇄 내용은 <b>내용 : [${f.tagLabel}]</b> 아래에 내용 문구가 들어가고, 비워두면 대괄호는 빠집니다.`
+      + (f.extensible ? `<br>저장할 때 빈 칸은 앞으로 당겨지고, 통째로 빈 페이지는 사라집니다.` : '');
     renderModalPhotoGrid(4);
     modalOpenedAs = JSON.stringify(modalSnapshot());
     modalOverlay.classList.add('show');
@@ -1884,7 +1953,14 @@
         modalPhotoGrid.appendChild(addAll);
       }
 
+      const extA = !!(A_FORMS[modalMode.group || 'A'].extensible);
       modalASlots.forEach((slot, i)=>{
+        if(extA && i % 4 === 0 && modalASlots.length > 4){
+          const pl = document.createElement('div');
+          pl.className = 'a-page-label';
+          pl.textContent = `사진대지 ${i/4+1}페이지 (${i+1}~${i+4}번 칸)`;
+          modalPhotoGrid.appendChild(pl);
+        }
         const box = document.createElement('div');
         box.className = 'a-slot-editor' + (slot ? '' : ' is-empty');
 
@@ -1945,6 +2021,14 @@
         box.appendChild(body);
         modalPhotoGrid.appendChild(box);
       });
+      if(extA){
+        const addPg = document.createElement('button');
+        addPg.type = 'button';
+        addPg.className = 'btn btn-ghost btn-block a-add-all';
+        addPg.textContent = '＋ 사진대지 1장 추가 (4칸)';
+        addPg.addEventListener('click', ()=>{ modalASlots.push(null,null,null,null); renderModalPhotoGrid(maxCount); });
+        modalPhotoGrid.appendChild(addPg);
+      }
       return;
     }
 
@@ -2061,13 +2145,16 @@
     try{
       if(modalMode && modalMode.type === 'A'){
         // 고른 사진을 빈 칸에 순서대로 채운다. 특정 칸을 눌렀으면 거기부터.
+        const extA = !!(A_FORMS[modalMode.group || 'A'].extensible);
         let targets = [];
-        if(pendingSlotIdx !== null){
-          targets.push(pendingSlotIdx);
-          for(let i=0;i<4;i++){ if(i !== pendingSlotIdx && !modalASlots[i]) targets.push(i); }
-        } else {
-          for(let i=0;i<4;i++){ if(!modalASlots[i]) targets.push(i); }
-        }
+        const collect = ()=>{
+          targets = [];
+          if(pendingSlotIdx !== null) targets.push(pendingSlotIdx);
+          for(let i=0;i<modalASlots.length;i++){ if(i !== pendingSlotIdx && !modalASlots[i]) targets.push(i); }
+        };
+        collect();
+        // 확장형이면 고른 사진이 빈 칸보다 많을 때 4칸씩 늘려서 다 받는다
+        while(extA && targets.length < files.length){ modalASlots.push(null,null,null,null); collect(); }
         let used = 0;
         for(const f of files){
           if(used >= targets.length) break;
@@ -2149,21 +2236,16 @@
         const noCap = [];
         modalASlots.forEach((sl,i)=>{ if(sl && !(sl.caption||'').trim()) noCap.push(i+1); });
         if(noCap.length && !confirm(`${noCap.join(', ')}번 칸의 "내용"이 비어 있습니다.\n엑셀에 내용 없이 인쇄됩니다. 이대로 저장할까요?`)){ return; }
-        ok = true;
-        for(let i=0;i<4;i++){
-          const before = currentDay[g][i];
-          const cur = modalASlots[i];
-          const slotData = cur ? {
-            dataUrl: cur.dataUrl,
-            caption: (cur.caption === '__custom__' ? '' : (cur.caption || '')),
-            vehicle: (cur.vehicle || '').trim()
-          } : null;
-          // 원래도 비었고 지금도 비었으면 굳이 쓰지 않는다
-          if(!before && !slotData) continue;
-          currentDay[g][i] = slotData;
-          const r = await saveASlot(registerDate, i, slotData, g);
-          if(!r) ok = false;
-        }
+        const cleaned = modalASlots.map(cur => cur ? {
+          dataUrl: cur.dataUrl,
+          caption: (cur.caption === '__custom__' ? '' : (cur.caption || '')),
+          vehicle: (cur.vehicle || '').trim()
+        } : null);
+        // 빈 칸은 앞으로 당기고, 확장형은 4의 배수로 맞춘다 (빈 페이지는 자연히 사라진다)
+        const finalSlots = compactASlots(g, cleaned);
+        const prevLen = currentDay[g].length;
+        currentDay[g] = finalSlots;
+        ok = await saveASlotsAll(registerDate, g, finalSlots, prevLen);
       } else if(modalMode.type === 'F'){
         syncSetCompanies();
         const per = normCut(modalMode.cut);
