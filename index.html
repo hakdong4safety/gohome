@@ -193,6 +193,22 @@
   .modal-photo-slot .rm-btn{position:absolute;top:4px;right:4px;background:rgba(0,0,0,.6);color:#fff;border:none;width:24px;height:24px;border-radius:50%;font-size:13px;line-height:1;}
   .add-photo-btn{border:1.5px dashed var(--amber);border-radius:12px;aspect-ratio:4/3;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#FFF9EF;color:var(--amber-dark);font-size:12.5px;font-weight:700;gap:4px;}
   .add-photo-btn .plus{font-size:22px;line-height:1;}
+  .a-page{grid-column:1/-1;border:1.5px solid var(--line-soft);border-radius:12px;padding:12px;background:#FAFBFB;margin-bottom:10px;}
+  .a-page-head{display:flex;align-items:center;gap:8px;margin-bottom:9px;}
+  .a-page-head .t{font-size:13px;font-weight:800;color:var(--navy);}
+  .a-page-head .cnt{font-size:11.5px;font-weight:700;color:var(--text-dim);}
+  .a-page-head .del{margin-left:auto;background:none;border:none;color:#C0392B;font-size:11.5px;font-weight:800;padding:2px 4px;}
+  .a-page-tag{width:100%;font-size:13px;font-weight:700;padding:9px 10px;margin-bottom:10px;}
+  .a-page-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .a-cell .thumb{position:relative;border:1px solid var(--line-soft);border-radius:9px;aspect-ratio:4/3;overflow:hidden;background:#EEF1F3;}
+  .a-cell .thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+  .a-cell .thumb .num{position:absolute;top:5px;left:5px;width:20px;height:20px;border-radius:50%;background:var(--navy);color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;}
+  .a-cell .thumb .clr{position:absolute;top:4px;right:4px;background:rgba(20,30,40,.7);color:#fff;border:none;border-radius:50%;width:22px;height:22px;font-size:12px;line-height:22px;padding:0;}
+  .a-cell .thumb .swap{position:absolute;left:0;right:0;bottom:0;background:rgba(20,30,40,.62);color:#fff;font-size:10px;font-weight:700;text-align:center;padding:2px 0;}
+  .a-cell .add-photo-btn{position:relative;}
+  .a-cell .add-photo-btn .num{position:absolute;top:5px;left:5px;width:20px;height:20px;border-radius:50%;background:var(--navy);color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;}
+  .a-cell select{width:100%;margin-top:6px;font-size:12px;padding:7px 8px;}
+  .a-page-add{margin-top:10px;}
   .slot-page-label{grid-column:1/-1;font-size:11.5px;font-weight:800;color:var(--text-dim);margin:4px 0 -2px;}
   .slot-card.add-page{border-style:dashed;color:var(--navy);}
   .slot-card.add-page .slot-icon{font-size:26px;}
@@ -888,8 +904,10 @@
     const ext = !!(A_FORMS[group] && A_FORMS[group].extensible);
     let html = '';
     for(let i=0;i<slots.length;i++){
-      if(ext && i % 4 === 0 && slots.length > 4){
-        html += `<div class="slot-page-label">사진대지 ${i/4+1}페이지</div>`;
+      if(ext && i % 4 === 0){
+        const first = slots.slice(i,i+4).find(Boolean);
+        const co = first && first.vehicle ? ` · ${escapeHtml(first.vehicle)}` : '';
+        html += `<div class="slot-page-label">사진대지 ${i/4+1}페이지${co}</div>`;
       }
       const slot = slots[i];
       if(slot){
@@ -1556,7 +1574,8 @@
       entries.push({ formType:'A', date: exportDate, photos: exportDay.A.filter(Boolean) });
     }
     if(selectedExport.has('A2')){
-      entries.push({ formType:'A2', date: exportDate, photos: exportDay.A2.filter(Boolean) });
+      entries.push({ formType:'A2', date: exportDate, photos: exportDay.A2.filter(Boolean),
+                     pages: aPagesOf('A2', exportDay.A2).map(pg=>pg.filter(Boolean)).filter(pg=>pg.length) });
     }
     allBCategories().forEach((cat,i)=>{
       if(selectedExport.has('B'+i)){
@@ -1588,10 +1607,12 @@
           const form = A_FORMS[entry.formType];
           pageSpecs.push({ kind:'cover', entry, coverTitle: form.coverTitle, name: form.coverSheet });
           const photos = entry.photos;
-          const totalChunks = Math.ceil(photos.length/4);
+          // 페이지형(협력업체가 페이지마다 다름)은 저장된 페이지 묶음을 그대로 쓴다
+          const chunks = entry.pages ? entry.pages : [];
+          if(!entry.pages) for(let i=0;i<photos.length;i+=4) chunks.push(photos.slice(i,i+4));
+          const totalChunks = chunks.length;
           let pageNum = 1;
-          for(let i=0;i<photos.length;i+=4){
-            const chunk = photos.slice(i,i+4);
+          for(const chunk of chunks){
             // 사진대지는 이미지가 아니라 진짜 엑셀 셀/병합/테두리로 만들어 편집 가능하다.
             pageSpecs.push({
               kind:'nativeAGrid', chunk, entry, header: form.gridHeader,
@@ -1756,6 +1777,7 @@
   let modalASlots = [null,null,null,null];
   let pendingSlotIdx = null; // 특정 칸의 "사진 추가"를 눌렀을 때만 값이 들어간다
   let modalOpenedAs = null;  // 모달을 열었을 때의 상태 (저장 안 하고 닫을 때 비교용)
+  let modalPageTags = [];    // 페이지형(A2) 협력업체: 페이지(4칸)마다 하나
 
   // 4컷 "결과 보고" 양식들. 갑지 + 사진대지 4컷이 한 세트로 나가는 문서다.
   // 대괄호에 들어가는 항목(tagLabel)만 양식마다 다르다.
@@ -1775,9 +1797,16 @@
       gridHeader:'고위험작업 특별안전교육 사진 대지',
       gridSheet:'고위험작업 특별안전교육',
       tagLabel:'협력업체', tagPlaceholder:'예: 삼마도건',
-      extensible:true                  // 사진대지를 4칸씩 계속 추가할 수 있다 (갑지는 1장)
+      extensible:true,                 // 사진대지를 4칸씩 계속 추가할 수 있다 (갑지는 1장)
+      tagPerPage:true                  // 협력업체는 페이지(사진 4장)마다 한 번만 입력
     }
   };
+  // 페이지 수(4칸 단위)와 페이지별 사진 묶음
+  function aPagesOf(group, slots){
+    const pages = [];
+    for(let i=0;i<slots.length;i+=4) pages.push(slots.slice(i,i+4));
+    return pages;
+  }
   // 칸 배열을 양식 규칙에 맞춘다: 확장형은 4의 배수(최소 4), 아니면 정확히 4칸
   function normalizeASlots(group, arr){
     const a = Array.isArray(arr) ? arr.slice() : [];
@@ -1790,6 +1819,18 @@
   }
   // 저장 시 빈 칸을 앞으로 당긴다 (칸 번호 = 인쇄 위치가 되도록)
   function compactASlots(group, arr){
+    const f = A_FORMS[group] || {};
+    if(f.tagPerPage){
+      // 페이지(세트)마다 협력업체가 다르므로 페이지를 넘나들며 당기면 안 된다
+      const out = [];
+      aPagesOf(group, arr||[]).forEach(pg=>{
+        const filled = pg.filter(Boolean);
+        if(filled.length === 0) return;             // 통째로 빈 페이지는 버린다
+        while(filled.length < 4) filled.push(null);
+        out.push(...filled);
+      });
+      return normalizeASlots(group, out);
+    }
     return normalizeASlots(group, (arr||[]).filter(Boolean));
   }
   const A_GROUPS = ['A','A2'];
@@ -1815,19 +1856,127 @@
     if(addPage && A_FORMS[group].extensible){
       modalASlots.push(null,null,null,null);   // 안 쓰면 저장 때 저절로 사라진다
     }
+    // 페이지마다 협력업체 하나: 그 페이지에서 처음 채워진 칸의 값을 가져온다
+    modalPageTags = aPagesOf(group, modalASlots).map(pg=>{
+      const f = pg.find(Boolean); return f ? (f.vehicle || '') : '';
+    });
     modalTitle.textContent = A_FORMS[group].label;
     modalCutToggle.style.display = 'none';
     modalHint.style.display = 'block';
     const f = A_FORMS[group];
-    modalHint.innerHTML = (f.extensible
-        ? `사진은 <b>몇 장이든</b> 넣을 수 있고 4장마다 사진대지가 한 장씩 늘어납니다. 갑지는 1장만 나갑니다. `
-        : `사진을 <b>한 번에 최대 4장</b>까지 고를 수 있어요. `)
-      + `${f.tagLabel}${josaWa(f.tagLabel)} 내용은 칸마다 따로 지정합니다.`
-      + `<br>인쇄 내용은 <b>내용 : [${f.tagLabel}]</b> 아래에 내용 문구가 들어가고, 비워두면 대괄호는 빠집니다.`
-      + (f.extensible ? `<br>저장할 때 빈 칸은 앞으로 당겨지고, 통째로 빈 페이지는 사라집니다.` : '');
+    modalHint.innerHTML = f.tagPerPage
+      ? `사진대지 한 장 = 사진 4장이고, <b>${f.tagLabel}는 페이지마다 한 번만</b> 적으면 4장에 다 들어갑니다. 내용은 사진마다 고릅니다. 갑지는 1장만 나갑니다.`
+        + `<br>인쇄 내용은 <b>내용 : [${f.tagLabel}]</b> 아래에 내용 문구. 통째로 빈 페이지는 저장할 때 사라집니다.`
+      : `사진을 <b>한 번에 최대 4장</b>까지 고를 수 있어요. ${f.tagLabel}${josaWa(f.tagLabel)} 내용은 칸마다 따로 지정합니다.`
+        + `<br>인쇄 내용은 <b>내용 : [${f.tagLabel}]</b> 아래에 내용 문구가 들어가고, 비워두면 대괄호는 빠집니다.`;
     renderModalPhotoGrid(4);
     modalOpenedAs = JSON.stringify(modalSnapshot());
     modalOverlay.classList.add('show');
+  }
+
+  // 페이지형 4컷 모달 (고위험작업 특별안전교육): 페이지 카드마다
+  // [협력업체 1칸] + [사진 2×2, 각 사진 아래 내용 선택] + [이 페이지에 사진 추가]
+  function renderPagedAModal(maxCount){
+    const group = modalMode.group;
+    const emptyCount = modalASlots.filter(x=>!x).length;
+    const addAll = document.createElement('button');
+    addAll.type = 'button';
+    addAll.className = 'btn btn-ghost btn-block a-add-all';
+    addAll.textContent = emptyCount > 0
+      ? `📷 사진 한 번에 추가 (빈 칸 ${emptyCount}개, 넘치면 페이지 자동 추가)`
+      : '📷 사진 한 번에 추가 (페이지 자동 추가)';
+    addAll.addEventListener('click', ()=>{ pendingSlotIdx = null; modalFileInput.click(); });
+    modalPhotoGrid.appendChild(addAll);
+
+    const pages = aPagesOf(group, modalASlots);
+    pages.forEach((pg, p)=>{
+      const base = p*4;
+      const filled = pg.filter(Boolean).length;
+      const card = document.createElement('div');
+      card.className = 'a-page';
+
+      const head = document.createElement('div');
+      head.className = 'a-page-head';
+      head.innerHTML = `<div class="t">사진대지 ${p+1}페이지</div><div class="cnt">${filled}/4장</div>`;
+      if(pages.length > 1 || filled > 0){
+        const del = document.createElement('button');
+        del.type = 'button'; del.className = 'del'; del.textContent = '페이지 삭제';
+        del.addEventListener('click', ()=>{
+          if(filled > 0 && !confirm(`${p+1}페이지의 사진 ${filled}장을 지울까요?`)) return;
+          modalASlots.splice(base, 4);
+          modalPageTags.splice(p, 1);
+          if(modalASlots.length === 0){ modalASlots = [null,null,null,null]; modalPageTags = ['']; }
+          renderModalPhotoGrid(maxCount);
+        });
+        head.appendChild(del);
+      }
+      card.appendChild(head);
+
+      const tag = document.createElement('input');
+      tag.type = 'text'; tag.className = 'a-page-tag';
+      tag.placeholder = `${A_FORMS[group].tagLabel} (이 페이지 4장 공통, 비우면 생략)`;
+      tag.value = modalPageTags[p] || '';
+      tag.addEventListener('input', ()=>{
+        modalPageTags[p] = tag.value;
+        for(let j=0;j<4;j++){ if(modalASlots[base+j]) modalASlots[base+j].vehicle = tag.value; }
+      });
+      card.appendChild(tag);
+
+      const grid = document.createElement('div');
+      grid.className = 'a-page-grid';
+      pg.forEach((slot, j)=>{
+        const i = base + j;
+        const cell = document.createElement('div');
+        cell.className = 'a-cell';
+        if(slot){
+          const th = document.createElement('div');
+          th.className = 'thumb';
+          th.innerHTML = `<img src="${slot.dataUrl}"><div class="num">${j+1}</div><div class="swap">눌러서 교체</div>`;
+          th.addEventListener('click', ()=>{ pendingSlotIdx = i; modalFileInput.click(); });
+          const clr = document.createElement('button');
+          clr.type = 'button'; clr.className = 'clr'; clr.textContent = '✕'; clr.title = '이 칸 비우기';
+          clr.addEventListener('click', (ev)=>{ ev.stopPropagation(); modalASlots[i] = null; renderModalPhotoGrid(maxCount); });
+          th.appendChild(clr);
+          cell.appendChild(th);
+          const sel = document.createElement('select');
+          sel.innerHTML = captionOptionsHtml(slot.caption || '');
+          sel.addEventListener('change', ()=>{
+            if(sel.value === '__custom__'){
+              const txt = (prompt('내용을 직접 입력하세요') || '').trim();
+              sel.innerHTML = captionOptionsHtml(txt);
+              sel.value = txt;
+            }
+            if(modalASlots[i]) modalASlots[i].caption = sel.value;
+          });
+          cell.appendChild(sel);
+        } else {
+          const add = document.createElement('div');
+          add.className = 'add-photo-btn';
+          add.innerHTML = `<div class="num">${j+1}</div><div class="plus">＋</div><div>사진</div>`;
+          add.addEventListener('click', ()=>{ pendingSlotIdx = i; modalFileInput.click(); });
+          cell.appendChild(add);
+        }
+        grid.appendChild(cell);
+      });
+      card.appendChild(grid);
+
+      if(filled < 4){
+        const addPg = document.createElement('button');
+        addPg.type = 'button';
+        addPg.className = 'btn btn-ghost btn-block a-page-add';
+        addPg.textContent = `이 페이지에 사진 추가 (${4-filled}장 남음)`;
+        addPg.addEventListener('click', ()=>{ pendingSlotIdx = base + pg.findIndex(x=>!x); modalFileInput.click(); });
+        card.appendChild(addPg);
+      }
+      modalPhotoGrid.appendChild(card);
+    });
+
+    const newPg = document.createElement('button');
+    newPg.type = 'button';
+    newPg.className = 'btn btn-ghost btn-block a-add-all';
+    newPg.textContent = '＋ 사진대지 1장 추가';
+    newPg.addEventListener('click', ()=>{ modalASlots.push(null,null,null,null); modalPageTags.push(''); renderModalPhotoGrid(maxCount); });
+    modalPhotoGrid.appendChild(newPg);
   }
 
   function captionOptionsHtml(selected){
@@ -1942,6 +2091,10 @@
     modalPhotoGrid.innerHTML = '';
 
     // ---------- 4컷(A/A2): 4칸을 한 화면에서 편집 ----------
+    if(modalMode && modalMode.type === 'A' && A_FORMS[modalMode.group || 'A'].tagPerPage){
+      renderPagedAModal(maxCount);
+      return;
+    }
     if(modalMode && modalMode.type === 'A'){
       const emptyCount = modalASlots.filter(x=>!x).length;
       if(emptyCount > 0){
@@ -2147,14 +2300,21 @@
         // 고른 사진을 빈 칸에 순서대로 채운다. 특정 칸을 눌렀으면 거기부터.
         const extA = !!(A_FORMS[modalMode.group || 'A'].extensible);
         let targets = [];
+        const perPage = !!(A_FORMS[modalMode.group || 'A'].tagPerPage);
         const collect = ()=>{
           targets = [];
-          if(pendingSlotIdx !== null) targets.push(pendingSlotIdx);
-          for(let i=0;i<modalASlots.length;i++){ if(i !== pendingSlotIdx && !modalASlots[i]) targets.push(i); }
+          if(pendingSlotIdx !== null){
+            targets.push(pendingSlotIdx);
+            if(perPage){ // 같은 페이지의 빈 칸부터
+              const b = Math.floor(pendingSlotIdx/4)*4;
+              for(let j=0;j<4;j++){ const k=b+j; if(k !== pendingSlotIdx && !modalASlots[k]) targets.push(k); }
+            }
+          }
+          for(let i=0;i<modalASlots.length;i++){ if(targets.indexOf(i) === -1 && !modalASlots[i]) targets.push(i); }
         };
         collect();
         // 확장형이면 고른 사진이 빈 칸보다 많을 때 4칸씩 늘려서 다 받는다
-        while(extA && targets.length < files.length){ modalASlots.push(null,null,null,null); collect(); }
+        while(extA && targets.length < files.length){ modalASlots.push(null,null,null,null); if(perPage) modalPageTags.push(''); collect(); }
         let used = 0;
         for(const f of files){
           if(used >= targets.length) break;
@@ -2166,7 +2326,7 @@
             modalASlots[idx] = {
               dataUrl,
               caption: prev ? (prev.caption || '') : '',
-              vehicle: prev ? (prev.vehicle || '') : ''
+              vehicle: perPage ? (modalPageTags[Math.floor(idx/4)] || '') : (prev ? (prev.vehicle || '') : '')
             };
             used++;
           }catch(err){ console.error(err); }
@@ -2212,7 +2372,7 @@
   function modalSnapshot(){
     if(!modalMode) return null;
     if(modalMode.type === 'A'){
-      return modalASlots.map(s=>s ? [s.dataUrl.length, s.caption||'', s.vehicle||''] : null);
+      return [modalASlots.map(s=>s ? [s.dataUrl.length, s.caption||'', s.vehicle||''] : null), modalPageTags.slice()];
     }
     return [normCut(modalMode.cut), modalMode.title||'', modalPhotos.map(p=>[p.dataUrl.length, p.company||'', p.caption||''])];
   }
@@ -2236,10 +2396,11 @@
         const noCap = [];
         modalASlots.forEach((sl,i)=>{ if(sl && !(sl.caption||'').trim()) noCap.push(i+1); });
         if(noCap.length && !confirm(`${noCap.join(', ')}번 칸의 "내용"이 비어 있습니다.\n엑셀에 내용 없이 인쇄됩니다. 이대로 저장할까요?`)){ return; }
-        const cleaned = modalASlots.map(cur => cur ? {
+        const perPage = !!(A_FORMS[g].tagPerPage);
+        const cleaned = modalASlots.map((cur, i) => cur ? {
           dataUrl: cur.dataUrl,
           caption: (cur.caption === '__custom__' ? '' : (cur.caption || '')),
-          vehicle: (cur.vehicle || '').trim()
+          vehicle: (perPage ? (modalPageTags[Math.floor(i/4)] || '') : (cur.vehicle || '')).trim()
         } : null);
         // 빈 칸은 앞으로 당기고, 확장형은 4의 배수로 맞춘다 (빈 페이지는 자연히 사라진다)
         const finalSlots = compactASlots(g, cleaned);
