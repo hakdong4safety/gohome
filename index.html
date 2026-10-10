@@ -109,6 +109,9 @@
   input[type=text],input[type=date],select,textarea{width:100%;padding:12px 12px;border:1px solid var(--line-strong);border-radius:var(--r-s);font-size:15px;background:#fff;color:var(--ink);min-height:46px;}
   input::placeholder{color:#9AA3AA;}
   input[type=file]{font-size:13px;}
+  .file-pick{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 14px;border:1.5px solid var(--line-strong);border-radius:var(--r-s);background:#fff;font-size:14px;font-weight:700;color:var(--ink);cursor:pointer;}
+  .file-pick input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;}
+  .logo-row{display:flex;align-items:center;gap:12px;margin:6px 0 4px;}
 
   .btn{min-height:46px;padding:11px 16px;border-radius:var(--r-s);border:none;font-size:15px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:8px;}
   .btn-primary{background:var(--ink);color:#fff;}
@@ -124,7 +127,7 @@
   }
 
   /* ---------- 날짜 현황판 (주인공) ---------- */
-  .date-bar{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 18px 14px;margin-bottom:14px;display:grid;grid-template-columns:1fr auto;grid-template-areas:"label today" "hero hero" "status status";gap:0 10px;}
+  .date-bar{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);padding:16px 18px 14px;margin-bottom:14px;display:grid;grid-template-columns:1fr auto;grid-template-areas:"label today" "hero pick" "status status";gap:0 10px;align-items:center;}
   .date-bar::before{content:"";position:absolute;left:0;top:14px;bottom:14px;width:5px;background:var(--safety);border-radius:0 3px 3px 0;}
   .date-bar .db-label{grid-area:label;font-size:12.5px;font-weight:600;color:var(--mute);}
   .date-bar .db-today{grid-area:today;align-self:start;background:var(--safety-soft);border:1px solid #F0D08A;color:var(--safety-ink);padding:6px 12px;border-radius:999px;font-size:12.5px;font-weight:700;min-height:0;}
@@ -132,9 +135,10 @@
   .date-bar .db-big{font-size:30px;font-weight:800;letter-spacing:-.03em;line-height:1.1;color:var(--ink);}
   .date-bar .db-dow{font-size:15px;font-weight:600;color:var(--mute);}
   .date-bar .db-year{font-size:13px;color:var(--mute);}
-  .date-bar input[type=date]{grid-area:hero;position:relative;z-index:2;opacity:0;width:100%;height:100%;min-height:0;padding:0;margin:0;border:0;cursor:pointer;}
-  .date-bar .db-hero{position:relative;z-index:1;padding:4px 0 2px;}
-  .date-bar .db-cal{margin-left:auto;align-self:center;font-size:12.5px;font-weight:600;color:var(--mute);border:1px solid var(--line-strong);border-radius:999px;padding:4px 10px;white-space:nowrap;}
+  .date-bar input[type=date]{grid-area:pick;justify-self:end;align-self:center;width:auto;max-width:170px;min-height:40px;padding:6px 12px;margin:0;border:1.5px solid var(--line-strong);border-radius:999px;background:#fff;color:var(--ink);font-size:13.5px;font-weight:700;cursor:pointer;-webkit-appearance:none;appearance:none;}
+  .date-bar input[type=date]::-webkit-calendar-picker-indicator{cursor:pointer;opacity:.8;}
+  .date-bar .db-hero{padding:4px 0 2px;}
+  .date-bar .db-cal{display:none;}
   .date-bar .db-status{grid-area:status;display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;padding-top:12px;border-top:1px dashed var(--line);}
   .chip{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;padding:6px 10px;border-radius:999px;background:#F1F3F2;color:var(--mute);border:1px solid transparent;}
   .chip b{font-weight:800;color:var(--ink);}
@@ -179,7 +183,8 @@
   .nc-side .ph img{width:100%;height:100%;object-fit:cover;display:block;}
   .nc-side .tx{font-size:13.5px;font-weight:600;color:var(--ink);margin-top:6px;line-height:1.35;word-break:keep-all;min-height:18px;}
   .nc-side .tx.empty{color:var(--mute);font-weight:500;}
-  .nc-link{display:flex;align-items:center;gap:10px;border:1px dashed var(--line-strong);border-radius:var(--r-m);padding:12px 14px;margin:4px 0 12px;font-size:13.5px;color:var(--ink-2);cursor:pointer;background:#F7F8F7;}
+  .nc-link{display:flex;align-items:center;gap:10px;border:1px dashed var(--line-strong);border-radius:var(--r-m);padding:12px 14px;margin:0 0 10px;font-size:13.5px;color:var(--ink-2);cursor:pointer;background:#F7F8F7;line-height:1.4;}
+  .nc-link .go{white-space:nowrap;flex:none;}
   .nc-link b{color:var(--ink);}
   .nc-link .go{margin-left:auto;font-weight:700;color:var(--ink);}
   /* 모달 */
@@ -327,7 +332,8 @@
   .a-slot-head .t{font-size:13.5px;font-weight:700;color:var(--ink);}
   .a-slot-head .rm{margin-left:auto;background:none;border:none;color:var(--warn);font-size:12.5px;font-weight:700;padding:6px 8px;min-height:32px;}
   .a-slot-body{display:grid;grid-template-columns:112px 1fr;gap:10px;align-items:start;}
-  .a-slot-thumb{border:1px solid var(--line);border-radius:var(--r-s);aspect-ratio:4/3;overflow:hidden;background:#EEF0F1;}
+  .a-slot-thumb{position:relative;border:1px solid var(--line);border-radius:var(--r-s);aspect-ratio:4/3;overflow:hidden;background:#EEF0F1;cursor:pointer;}
+  .a-slot-thumb .swap{position:absolute;left:0;right:0;bottom:0;background:rgba(19,30,43,.7);color:#fff;font-size:10.5px;font-weight:700;text-align:center;padding:3px 0;}
   .a-slot-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
   .a-slot-fields input,.a-slot-fields select{width:100%;margin-bottom:8px;font-size:13.5px;min-height:42px;padding:8px 10px;}
   .a-slot-fields .fl{font-size:12px;font-weight:600;color:var(--mute);margin-bottom:4px;}
@@ -446,15 +452,16 @@
       </div>
       <div class="day-loading" id="exportLoading">불러오는 중…</div>
 
-      <div class="section-heading"><span class="sh-mark"></span>내보낼 항목</div>
-      <div class="export-hint">아무것도 체크하지 않으면 사진이 있는 항목이 전부 들어갑니다. 일부만 뽑으려면 체크하세요.</div>
-      <div id="exportItemsList"></div>
-      <div class="nc-link" id="exportNcLink" style="display:none;"></div>
-
       <div class="action-bar">
         <button class="export-all-btn" id="exportXlsxBtn"><span class="icon">📥</span><span class="ex-label">엑셀로 내보내기</span><span class="cnt" id="exportCount"></span></button>
       </div>
 
+      <div class="section-heading"><span class="sh-mark"></span>내보낼 항목</div>
+      <div class="export-hint">아무것도 체크하지 않으면 사진이 있는 항목이 전부 들어갑니다. 일부만 뽑으려면 체크하세요.</div>
+      <div class="nc-link" id="exportNcLink" style="display:none;"></div>
+      <div id="exportItemsList"></div>
+
+      <div class="section-heading" id="exportPreviewHead" style="display:none;"><span class="sh-mark"></span>미리보기<span class="sh-note">실제 엑셀과 같은 배치</span></div>
       <div id="exportPreview"></div>
     </div>
   </div>
@@ -476,8 +483,10 @@
         <label class="field-label">회사명</label>
         <input type="text" id="settingCompany">
         <label class="field-label">로고 이미지</label>
-        <input type="file" id="settingLogoFile" accept="image/*">
-        <img id="logoPreview" style="height:28px;margin-top:8px;display:block;">
+        <div class="logo-row">
+          <img id="logoPreview" style="height:28px;display:block;" alt="로고 미리보기">
+          <label class="file-pick" style="position:relative;">🖼 로고 바꾸기<input type="file" id="settingLogoFile" accept="image/*"></label>
+        </div>
         <button class="btn btn-primary btn-block" id="saveSettingsBtn" style="margin-top:14px;">저장</button>
       </div>
 
@@ -1129,7 +1138,7 @@ async function ncBuildPptx(JSZip, tplBuf, items){
     let n = 0; try{ n = await loadNCCount(exportDate); }catch(e){}
     if(!n){ el.style.display = 'none'; return; }
     el.style.display = 'flex';
-    el.innerHTML = `🚧 <span>부적합 사항 <b>${n}건</b>은 PPT 양식이라 부적합사항 탭에서 내보냅니다</span><span class="go">이동 →</span>`;
+    el.innerHTML = `🚧 <span>부적합 사항 <b>${n}건</b>은 PPT라 부적합사항 탭에서 내보내요</span><span class="go">이동 →</span>`;
     el.onclick = ()=>{ document.querySelector('.tab-btn[data-tab="nc"]').click(); };
   }
 
@@ -1156,7 +1165,7 @@ async function ncBuildPptx(JSZip, tplBuf, items){
     const [y,m,d] = iso.split('-').map(Number);
     const dow = DOW[new Date(y, m-1, d).getDay()];
     const isToday = iso === todayStr();
-    el.innerHTML = `<span class="db-big">${m}월 ${d}일</span><span class="db-dow">${dow}요일${isToday ? ' · 오늘' : ''}</span><span class="db-year">${y}년</span><span class="db-cal">📅 바꾸기</span>`;
+    el.innerHTML = `<span class="db-big">${m}월 ${d}일</span><span class="db-dow">${dow}요일${isToday ? ' · 오늘' : ''}</span><span class="db-year">${y}년</span>`;
     const tb = document.getElementById(which === 'export' ? 'exportTodayBtn' : (which === 'nc' ? 'ncTodayBtn' : 'registerTodayBtn'));
     if(tb) tb.style.visibility = isToday ? 'hidden' : 'visible';
   }
@@ -1246,6 +1255,7 @@ async function ncBuildPptx(JSZip, tplBuf, items){
     catch(e){ console.error('loadDay failed', e); toast('데이터를 불러오지 못했습니다'); }
     if(my !== exportReqToken) return;
     exportDay = day || emptyDay(wantDate);
+    { const pv = document.getElementById('exportPreview'); if(pv) pv.innerHTML = ''; const h = document.getElementById('exportPreviewHead'); if(h) h.style.display = 'none'; }
     spin.classList.remove('show');
     document.getElementById('exportXlsxBtn').disabled = false;
     padDayB(exportDay);
@@ -1710,7 +1720,13 @@ async function ncBuildPptx(JSZip, tplBuf, items){
     return canvas;
   }
 
+  function showPreviewHead(){
+    const h = document.getElementById('exportPreviewHead');
+    if(h) h.style.display = 'flex';
+    setTimeout(()=>{ const pv = document.getElementById('exportPreview'); if(pv) pv.scrollIntoView({behavior:'smooth', block:'start'}); }, 150);
+  }
   function renderExportPreviewFromCanvases(pages){
+    showPreviewHead();
     const wrap = document.getElementById('exportPreview');
     wrap.innerHTML = '';
     pages.forEach(canvas=>{
@@ -2250,8 +2266,7 @@ async function ncBuildPptx(JSZip, tplBuf, items){
     const f = A_FORMS[group];
     modalHint.innerHTML = f.tagPerPage
       ? `한 페이지 = 사진 4장. <b>${f.tagLabel}는 페이지당 한 번</b>, 내용은 사진마다. 갑지는 1장만 나갑니다.`
-      : `사진을 <b>한 번에 최대 4장</b>까지 고를 수 있어요. ${f.tagLabel}${josaWa(f.tagLabel)} 내용은 칸마다 따로 지정합니다.`
-        + `<br>인쇄 내용은 <b>내용 : [${f.tagLabel}]</b> 아래에 내용 문구가 들어가고, 비워두면 대괄호는 빠집니다.`;
+      : `사진 <b>최대 4장</b>. ${f.tagLabel}${josaWa(f.tagLabel)} 내용은 칸마다. 인쇄: <b>내용 : [${f.tagLabel}]</b> + 내용 문구 (비우면 대괄호 생략)`;
     renderModalPhotoGrid(4);
     modalOpenedAs = JSON.stringify(modalSnapshot());
     modalOverlay.classList.add('show');
@@ -2579,7 +2594,7 @@ async function ncBuildPptx(JSZip, tplBuf, items){
         if(slot){
           const th = document.createElement('div');
           th.className = 'a-slot-thumb';
-          th.innerHTML = `<img src="${slot.dataUrl}">`;
+          th.innerHTML = `<img src="${slot.dataUrl}"><div class="swap">눌러서 교체</div>`;
           th.addEventListener('click', ()=>{ pendingSlotIdx = i; modalFileInput.click(); });
           body.appendChild(th);
         } else {
