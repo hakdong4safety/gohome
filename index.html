@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>현장 안전점검 사진대지 시스템</title>
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#132A46">
+<meta name="theme-color" content="#131E2B">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="mobile-web-app-capable" content="yes">
@@ -43,12 +43,14 @@
     --info-bg:#E8EEF4;
     --r-s:8px; --r-m:12px; --r-l:16px;
     --nav-h:64px;
+    --sat:env(safe-area-inset-top,0px);     /* 상태바(노치) 높이 */
+    --sab:env(safe-area-inset-bottom,0px);  /* 홈 제스처 바 높이 */
     font-family:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;
     font-feature-settings:"tnum";
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);-webkit-text-size-adjust:100%;}
-  body{font-size:15px;line-height:1.45;letter-spacing:-.01em;padding-bottom:calc(var(--nav-h) + 76px);}
+  body{font-size:15px;line-height:1.45;letter-spacing:-.01em;padding-bottom:calc(var(--nav-h) + var(--sab) + 76px);}
   h1,h2,h3{margin:0;}
   button{font-family:inherit;cursor:pointer;}
   input,select,textarea{font-family:inherit;}
@@ -61,7 +63,7 @@
   .auth-warning{background:#B9770E;}
 
   /* ---------- 헤더: 한 줄 브랜드 ---------- */
-  .app-header{background:var(--ink);color:#fff;padding:12px 16px;position:sticky;top:0;z-index:50;}
+  .app-header{background:var(--ink);color:#fff;padding:calc(12px + var(--sat)) 16px 12px;position:sticky;top:0;z-index:50;}
   .app-header .brand{display:flex;align-items:center;gap:10px;}
   .app-header .brand-mark{width:12px;height:22px;flex:none;background:repeating-linear-gradient(135deg,var(--safety) 0 5px,var(--ink) 5px 10px);border-radius:2px;}
   .app-header h1{font-size:15.5px;font-weight:700;letter-spacing:-.01em;}
@@ -71,7 +73,7 @@
   .container{max-width:1080px;margin:0 auto;padding:16px;}
 
   /* ---------- 탭: 모바일 하단 / PC 좌측 ---------- */
-  #tabNav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:80;background:var(--ink);height:var(--nav-h);padding-bottom:env(safe-area-inset-bottom,0);}
+  #tabNav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:80;background:var(--ink);height:calc(var(--nav-h) + var(--sab));padding-bottom:var(--sab);box-sizing:border-box;}
   #tabNav .tab-btn{flex:1;border:none;background:transparent;color:#9AA8B6;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:12.5px;font-weight:700;position:relative;}
   #tabNav .tab-btn .tb-icon{font-size:20px;line-height:1;}
   #tabNav .tab-btn.active{color:#fff;}
@@ -144,7 +146,7 @@
   @keyframes ld{from{background-position:200% 0}to{background-position:-200% 0}}
 
   /* ---------- 고정 행동 바 (모바일: 탭 위 / PC: 제자리) ---------- */
-  .action-bar{position:fixed;left:0;right:0;bottom:calc(var(--nav-h) + env(safe-area-inset-bottom,0));z-index:70;padding:10px 16px 12px;background:linear-gradient(transparent,var(--paper) 35%);}
+  .action-bar{position:fixed;left:0;right:0;bottom:calc(var(--nav-h) + var(--sab));z-index:70;padding:10px 16px 12px;background:linear-gradient(transparent,var(--paper) 35%);}
   .action-bar .export-all-btn{margin:0;box-shadow:0 8px 22px rgba(19,30,43,.22);}
   @media (min-width:900px){
     .action-bar{position:static;padding:0;background:none;margin-bottom:18px;}
@@ -260,14 +262,14 @@
   .phrase-item button{flex:none;background:#fff;border:1px solid var(--line-strong);border-radius:var(--r-s);min-height:46px;padding:0 12px;color:var(--warn);font-size:13px;font-weight:700;}
   .settings-foot{font-size:12.5px;color:var(--mute);text-align:center;margin:18px 0 6px;}
 
-  .toast{position:fixed;bottom:calc(var(--nav-h) + 86px);left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 18px;border-radius:999px;font-size:14px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.28);z-index:200;opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;max-width:calc(100% - 32px);text-align:center;}
+  .toast{position:fixed;bottom:calc(var(--nav-h) + var(--sab) + 86px);left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 18px;border-radius:999px;font-size:14px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.28);z-index:200;opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;max-width:calc(100% - 32px);text-align:center;}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(-4px);}
   @media (min-width:900px){.toast{bottom:28px;}}
 
   /* ---------- 모달 ---------- */
   .modal-overlay{position:fixed;inset:0;background:rgba(10,16,24,.6);display:none;align-items:flex-end;justify-content:center;z-index:300;padding:0;}
   .modal-overlay.show{display:flex;}
-  .modal-box{background:#fff;border-radius:var(--r-l) var(--r-l) 0 0;padding:18px 18px calc(18px + env(safe-area-inset-bottom,0));max-width:520px;width:100%;max-height:92vh;overflow:auto;}
+  .modal-box{background:#fff;border-radius:var(--r-l) var(--r-l) 0 0;padding:18px 18px calc(18px + var(--sab));max-width:520px;width:100%;max-height:92vh;overflow:auto;}
   @media (min-width:600px){
     .modal-overlay{align-items:center;padding:16px;}
     .modal-box{border-radius:var(--r-l);padding:22px;}
