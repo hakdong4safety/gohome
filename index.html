@@ -167,6 +167,13 @@
   .action-bar-2{display:flex;gap:8px;}
   .action-bar-2 .export-all-btn{width:auto;min-width:0;flex:1 1 55%;white-space:nowrap;padding-left:12px;padding-right:12px;}
   .action-bar-2 .export-all-btn.ghost{background:#fff;color:var(--ink);border:1.5px solid var(--line-strong);flex:1 1 45%;font-size:15px;}
+  #panel-export .action-bar-2 .export-all-btn{min-width:0;overflow:hidden;}
+  #panel-export .action-bar-2 .export-all-btn.ghost{flex:0 0 auto;}
+  @media (max-width:599px){
+    #panel-export .action-bar-2 .export-all-btn.ghost .ex-label{font-size:0;}
+    #panel-export .action-bar-2 .export-all-btn.ghost .ex-label::after{content:"ZIP";font-size:15px;}
+    #panel-export .action-bar-2 .export-all-btn.ghost .cnt{display:none;}
+  }
   .action-bar-2 .export-all-btn.ghost .cnt{background:var(--ink);color:#fff;margin-left:6px;}
   .action-bar-2 .export-all-btn.ghost:disabled{opacity:.45;}
   @media (hover:hover){.action-bar-2 .export-all-btn.ghost:not(:disabled):hover{background:#fff;border-color:var(--ink);}}
@@ -453,8 +460,9 @@
       </div>
       <div class="day-loading" id="exportLoading">불러오는 중…</div>
 
-      <div class="action-bar">
+      <div class="action-bar action-bar-2">
         <button class="export-all-btn" id="exportXlsxBtn"><span class="icon">📥</span><span class="ex-label">엑셀로 내보내기</span><span class="cnt" id="exportCount"></span></button>
+        <button class="export-all-btn ghost" id="exportZipBtn" title="그날 등록한 사진 원본을 폴더별로 묶어 내려받습니다"><span class="icon">📦</span><span class="ex-label">사진 ZIP</span><span class="cnt" id="exportZipCount"></span></button>
       </div>
 
       <div class="section-heading"><span class="sh-mark"></span>내보낼 항목</div>
@@ -1226,6 +1234,7 @@ async function ncBuildPptx(JSZip, tplBuf, items){
     const el = document.getElementById('exportNcLink');
     if(!el) return;
     let n = 0; try{ n = await loadNCCount(exportDate); }catch(e){}
+    exportNcCount = n; renderZipCount();
     if(!n){ el.style.display = 'none'; return; }
     el.style.display = 'flex';
     el.innerHTML = `🚧 <span>부적합 사항 <b>${n}건</b>은 PPT라 부적합사항 탭에서 내보내요</span><span class="go">이동 →</span>`;
@@ -1503,6 +1512,7 @@ async function ncBuildPptx(JSZip, tplBuf, items){
       el.addEventListener('click', ()=>toggleExportKey(el.dataset.key));
     });
     renderExportCount();
+    renderZipCount();
   }
   function buildExportCard(key, label, has, sub){
     const checked = selectedExport.has(key);
@@ -1515,6 +1525,111 @@ async function ncBuildPptx(JSZip, tplBuf, items){
       </div>
     </div>`;
   }
+  // ---------- 사진 ZIP: 그날 사진을 양식별 폴더로 묶어 내려받기 ----------
+  function safeName(t, max){
+    const x = String(t||'').replace(/[\\/:*?"<>|\r\n\t]+/g,' ').replace(/\s+/g,' ').trim();
+    return (x.length > (max||40)) ? x.slice(0, max||40) : x;
+  }
+  function dataUrlExt(d){ return imgExtFromDataUrl(d) === 'png' ? 'png' : 'jpg'; }
+  function countDayPhotos(day){
+    if(!day) return 0;
+    let n = day.A.filter(Boolean).length + day.A2.filter(Boolean).length;
+    day.B.forEach(b=>{ n += (b && b.photos ? b.photos.length : 0); });
+    (day.F||[]).forEach(f=>{ n += f.photos.length; });
+    return n;
+  }
+  async function buildPhotoZip(day, ncList, dateIso){
+    const zip = new JSZip();
+    const root = zip.folder(`사진_${dateIso.replace(/-/g,'')}`);
+    const lines = [`사진 목록 · ${dateIso}`, ''];
+    let total = 0;
+    const put = (folder, name, dataUrl, note)=>{
+      const b64 = (dataUrl||'').split(',')[1]; if(!b64) return;
+      folder.file(name, b64, {base64:true}); total++;
+      lines.push(`${folder.root}${name}` + (note ? `\t${note}` : ''));
+    };
+    // 4컷 결과보고 양식
+    A_GROUPS.forEach(g=>{
+      const form = A_FORMS[g];
+      const slots = day[g] || [];
+      if(!slots.some(Boolean)) return;
+      const fd = root.folder(safeName(form.label));
+      slots.forEach((sl, i)=>{
+        if(!sl) return;
+        const tag = sl.vehicle ? `[${safeName(sl.vehicle, 20)}]` : '';
+        const cap = safeName(resolvePhrase(sl.caption||'', dateIso), 40);
+        const page = form.extensible ? `${Math.floor(i/4)+1}페이지_` : '';
+        put(fd, `${page}${String(i%4+1)}${tag ? '_'+tag : ''}${cap ? '_'+cap : ''}.${dataUrlExt(sl.dataUrl)}`, sl.dataUrl, cap);
+      });
+    });
+    // 사진대지 항목
+    const cats = allBCategories();
+    cats.forEach((cat, i)=>{
+      const b = day.B[i]; if(!b || !b.photos.length) return;
+      const fd = root.folder(`사진대지_${safeName(cat)}`);
+      const per = normCut(b.cut);
+      b.photos.forEach((ph, j)=>{
+        const set = Math.floor(j/per)+1, k = j%per+1;
+        const co = ph.company ? `_[${safeName(ph.company,20)}]` : '';
+        put(fd, `${set}세트_${k}${co}.${dataUrlExt(ph.dataUrl)}`, ph.dataUrl, ph.company||'');
+      });
+    });
+    // 자유 사진대지
+    (day.F||[]).forEach((f, fi)=>{
+      if(!f.photos.length) return;
+      const fd = root.folder(`자유_${safeName(f.title)}`);
+      const per = normCut(f.cut);
+      f.photos.forEach((ph, j)=>{
+        const set = Math.floor(j/per)+1, k = j%per+1;
+        const co = ph.company ? `_[${safeName(ph.company,20)}]` : '';
+        const cap = ph.caption ? `_${safeName(ph.caption,40)}` : '';
+        put(fd, `${set}세트_${k}${co}${cap}.${dataUrlExt(ph.dataUrl)}`, ph.dataUrl, ph.caption||'');
+      });
+    });
+    // 부적합 사항
+    if(ncList && ncList.length){
+      const fd = root.folder('부적합사항_조치전후');
+      ncList.forEach((it, i)=>{
+        const n = i+1;
+        if(it.beforeUrl) put(fd, `${n}_조치전${it.beforeText ? '_'+safeName(it.beforeText,40) : ''}.${dataUrlExt(it.beforeUrl)}`, it.beforeUrl, it.beforeText||'');
+        if(it.afterUrl)  put(fd, `${n}_조치후${it.afterText ? '_'+safeName(it.afterText,40) : ''}.${dataUrlExt(it.afterUrl)}`,  it.afterUrl,  it.afterText||'');
+      });
+    }
+    root.file('목록.txt', lines.join('\n'));
+    return { zip, total };
+  }
+  function renderZipCount(){
+    const el = document.getElementById('exportZipCount');
+    const btn = document.getElementById('exportZipBtn');
+    if(!el || !btn) return;
+    const n = countDayPhotos(exportDay) + (exportNcCount||0)*0;   // 부적합 사진 수는 내려받을 때 센다
+    el.textContent = n ? `${n}장+` : '';
+    btn.disabled = n === 0 && !(exportNcCount > 0);
+  }
+  let exportNcCount = 0;
+  document.getElementById('exportZipBtn').addEventListener('click', async ()=>{
+    if(typeof JSZip === 'undefined'){ toast('압축 모듈을 불러오지 못했습니다. 인터넷 연결을 확인해주세요'); return; }
+    const btn = document.getElementById('exportZipBtn');
+    btn.disabled = true; btn.querySelector('.ex-label').textContent = '묶는 중...'; btn.querySelector('.icon').textContent = '⏳';
+    try{
+      let nc = [];
+      try{ nc = await loadNC(exportDate); }catch(e){ console.error(e); }
+      const { zip, total } = await buildPhotoZip(exportDay, nc, exportDate);
+      if(!total){ toast('이 날짜에 내려받을 사진이 없습니다'); return; }
+      const blob = await zip.generateAsync({ type:'blob', compression:'STORE' });   // JPEG 는 더 안 줄어드니 저장만
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `사진_${exportDate.replace(/-/g,'')}.zip`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast(`사진 ${total}장을 ZIP으로 내려받았습니다`);
+    }catch(e){
+      console.error('zip failed', e); toast('ZIP 생성에 실패했습니다: ' + (e && e.message ? e.message : e));
+    }finally{
+      btn.querySelector('.ex-label').textContent = '사진 ZIP'; btn.querySelector('.icon').textContent = '📦'; renderZipCount();
+    }
+  });
+
   function renderExportCount(){
     const el = document.getElementById('exportCount');
     if(!el || !exportDay) return;
