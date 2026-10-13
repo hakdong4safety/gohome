@@ -818,7 +818,45 @@ async function ncBuildPptx(JSZip, tplBuf, items){
   function isHeicFile(file){
     return /\.(heic|heif)$/i.test(file && file.name || '') || /hei[cf]/i.test(file && file.type || '');
   }
-  async function compressFile(file, maxW){
+  // HEIC 변환 라이브러리(heic2any, 약 1.3MB)는 HEIC 파일을 만났을 때만 한 번 내려받는다.
+  let heicLibPromise = null;
+  function ensureHeicLib(){
+    if(window.heic2any) return Promise.resolve(window.heic2any);
+    if(heicLibPromise) return heicLibPromise;
+    heicLibPromise = new Promise((resolve, reject)=>{
+      const sc = document.createElement('script');
+      sc.src = 'https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js';
+      sc.onload = ()=> window.heic2any ? resolve(window.heic2any) : reject(new Error('heic-lib'));
+      sc.onerror = ()=>{ heicLibPromise = null; reject(new Error('heic-lib')); };
+      document.head.appendChild(sc);
+    });
+    return heicLibPromise;
+  }
+  // HEIC → JPEG Blob (브라우저가 HEIC를 직접 못 읽을 때)
+  async function heicToJpegBlob(file, status){
+    if(status) status('HEIC 변환 준비 중… (처음 한 번은 몇 초 걸려요)');
+    const lib = await ensureHeicLib();
+    if(status) status('HEIC → JPG 변환 중…');
+    const out = await lib({ blob:file, toType:'image/jpeg', quality:0.9 });
+    return Array.isArray(out) ? out[0] : out;
+  }
+
+  async function compressFile(file, maxW, status){
+    try{
+      return await decodeAndShrink(file, maxW);
+    }catch(e){
+      // 브라우저가 못 읽는 HEIC면 변환해서 한 번 더
+      if(isHeicFile(file) || (file && file.type === '')){
+        let jpg;
+        try{ jpg = await heicToJpegBlob(file, status); }
+        catch(e2){ throw new Error(e2 && e2.message === 'heic-lib' ? 'heic-lib' : 'heic'); }
+        if(status) status('사진 줄이는 중…');
+        return await decodeAndShrink(jpg, maxW, file.name);
+      }
+      throw e;
+    }
+  }
+  async function decodeAndShrink(file, maxW, origName){
     let src = null, w = 0, h = 0, bmp = null;
     if(window.createImageBitmap){
       try{
@@ -844,6 +882,7 @@ async function ncBuildPptx(JSZip, tplBuf, items){
       src = img; w = img.naturalWidth || img.width; h = img.naturalHeight || img.height;
     }
     if(!w || !h) throw new Error(isHeicFile(file) ? 'heic' : 'decode');
+    void origName;
     let tw = w, th = h;
     if(w > maxW){ th = Math.round(h * (maxW/w)); tw = maxW; }
     const canvas = document.createElement('canvas');
@@ -861,8 +900,10 @@ async function ncBuildPptx(JSZip, tplBuf, items){
     const name = (file && file.name) ? file.name : '사진';
     const code = err && err.message;
     let why;
-    if(code === 'heic' || isHeicFile(file)){
-      why = `${name}: HEIC(고효율) 형식은 이 브라우저가 읽지 못합니다. 카메라 설정에서 '고효율 사진'을 끄거나, 갤러리에서 JPG로 공유해 주세요`;
+    if(code === 'heic-lib'){
+      why = `${name}: HEIC 변환 도구를 내려받지 못했습니다. 인터넷 연결을 확인하고 다시 시도해 주세요`;
+    } else if(code === 'heic' || isHeicFile(file)){
+      why = `${name}: HEIC 사진을 변환하지 못했습니다. 갤러리에서 JPG로 공유하거나 카메라 설정의 '고효율 사진'을 꺼 주세요`;
     } else if(code === 'read'){
       why = `${name}: 파일을 읽지 못했습니다. 다시 선택해 주세요`;
     } else {
@@ -2803,13 +2844,14 @@ async function ncBuildPptx(JSZip, tplBuf, items){
     busy.textContent = `사진 처리 중… (0/${files.length})`;
     modalPhotoGrid.prepend(busy);
     const tick = (n)=>{ busy.textContent = `사진 처리 중… (${n}/${files.length})`; };
+    const status = (t)=>{ busy.textContent = t; };
 
     try{
       if(modalMode && modalMode.type === 'NC'){
         const k = (pendingSlotIdx === 'after') ? 'after' : 'before';
-        try{ ncEdit[k+'Url'] = await compressFile(files[0], 1000); tick(1); }catch(err){ photoFailToast(files[0], err); }
+        try{ ncEdit[k+'Url'] = await compressFile(files[0], 1000, status); tick(1); }catch(err){ photoFailToast(files[0], err); }
         // 사진을 두 장 고르면 두 번째는 반대쪽 칸으로
-        if(files[1]){ const o = k==='before' ? 'after' : 'before'; if(!ncEdit[o+'Url']){ try{ ncEdit[o+'Url'] = await compressFile(files[1], 1000); tick(2); }catch(err){ photoFailToast(files[1], err); } } }
+        if(files[1]){ const o = k==='before' ? 'after' : 'before'; if(!ncEdit[o+'Url']){ try{ ncEdit[o+'Url'] = await compressFile(files[1], 1000, status); tick(2); }catch(err){ photoFailToast(files[1], err); } } }
         pendingSlotIdx = null;
         renderModalPhotoGrid(null);
       } else if(modalMode && modalMode.type === 'A'){
@@ -2835,7 +2877,7 @@ async function ncBuildPptx(JSZip, tplBuf, items){
         for(const f of files){
           if(used >= targets.length) break;
           try{
-            const dataUrl = await compressFile(f, 1000);
+            const dataUrl = await compressFile(f, 1000, status);
             tick(used+1);
             const idx = targets[used];
             const prev = modalASlots[idx];
@@ -2858,7 +2900,7 @@ async function ncBuildPptx(JSZip, tplBuf, items){
         let at = start;
         for(const f of files){
           try{
-            const dataUrl = await compressFile(f, 1000);
+            const dataUrl = await compressFile(f, 1000, status);
             tick(at - start + 1);
             const prev = modalPhotos[at];
             modalPhotos[at] = {dataUrl, company: prev ? prev.company : '', caption: prev ? (prev.caption||'') : ''};   // 그 자리에 채우거나 교체
