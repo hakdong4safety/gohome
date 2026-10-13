@@ -772,12 +772,12 @@ async function ncBuildPptx(JSZip, tplBuf, items){
     }catch(e){ console.error("rtdb set failed", key, e); return null; }
   }
 
-  function toast(msg){
+  function toast(msg, ms){
     const t = document.getElementById('toast');
     t.textContent = msg;
     t.classList.add('show');
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(()=>t.classList.remove('show'), 2200);
+    toastTimer = setTimeout(()=>t.classList.remove('show'), ms || 2200);
   }
 
   function todayStr(){
@@ -810,26 +810,66 @@ async function ncBuildPptx(JSZip, tplBuf, items){
     });
   }
 
-  function compressFile(file, maxW){
-    return new Promise((resolve,reject)=>{
-      const reader = new FileReader();
-      reader.onload = function(e){
-        const img = new Image();
-        img.onload = function(){
-          let w = img.width, h = img.height;
-          if(w > maxW){ h = Math.round(h * (maxW/w)); w = maxW; }
-          const canvas = document.createElement('canvas');
-          canvas.width = w; canvas.height = h;
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img,0,0,w,h);
-          resolve(canvas.toDataURL('image/jpeg', 0.72));
-        };
-        img.onerror = reject;
-        img.src = e.target.result;
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
+  // 사진 파일 → 가로 maxW 로 줄인 JPEG dataURL
+  // 1순위 createImageBitmap: 2억 화소 같은 큰 사진도 디코더가 바로 줄여 읽어 메모리를 아끼고,
+  //       EXIF 회전(세로로 찍은 사진)을 반영한다.
+  // 2순위 Image 요소 (오래된 브라우저)
+  // 실패하면 원인을 담은 에러를 던진다 — 호출한 쪽에서 사용자에게 보여준다.
+  function isHeicFile(file){
+    return /\.(heic|heif)$/i.test(file && file.name || '') || /hei[cf]/i.test(file && file.type || '');
+  }
+  async function compressFile(file, maxW){
+    let src = null, w = 0, h = 0, bmp = null;
+    if(window.createImageBitmap){
+      try{
+        const opt = { imageOrientation:'from-image' };
+        if(file.size > 2.5*1024*1024) opt.resizeWidth = maxW;   // 큰 사진은 디코드 단계에서 축소
+        bmp = await createImageBitmap(file, opt);
+        src = bmp; w = bmp.width; h = bmp.height;
+      }catch(e){ bmp = null; src = null; }
+    }
+    if(!src){
+      const dataUrl = await new Promise((res, rej)=>{
+        const r = new FileReader();
+        r.onload = e=>res(e.target.result);
+        r.onerror = ()=>rej(new Error('read'));
+        r.readAsDataURL(file);
+      });
+      const img = await new Promise((res, rej)=>{
+        const im = new Image();
+        im.onload = ()=>res(im);
+        im.onerror = ()=>rej(new Error(isHeicFile(file) ? 'heic' : 'decode'));
+        im.src = dataUrl;
+      });
+      src = img; w = img.naturalWidth || img.width; h = img.naturalHeight || img.height;
+    }
+    if(!w || !h) throw new Error(isHeicFile(file) ? 'heic' : 'decode');
+    let tw = w, th = h;
+    if(w > maxW){ th = Math.round(h * (maxW/w)); tw = maxW; }
+    const canvas = document.createElement('canvas');
+    canvas.width = tw; canvas.height = th;
+    const ctx = canvas.getContext('2d');
+    if(!ctx) throw new Error('canvas');
+    ctx.drawImage(src, 0, 0, tw, th);
+    if(bmp && bmp.close) bmp.close();
+    const out = canvas.toDataURL('image/jpeg', 0.72);
+    if(!out || out.length < 200) throw new Error('encode');
+    return out;
+  }
+  // 사진을 못 넣었을 때 사용자에게 이유를 말해준다 (예전엔 콘솔에만 남겨 "안 된다"로 보였다)
+  function photoFailToast(file, err){
+    const name = (file && file.name) ? file.name : '사진';
+    const code = err && err.message;
+    let why;
+    if(code === 'heic' || isHeicFile(file)){
+      why = `${name}: HEIC(고효율) 형식은 이 브라우저가 읽지 못합니다. 카메라 설정에서 '고효율 사진'을 끄거나, 갤러리에서 JPG로 공유해 주세요`;
+    } else if(code === 'read'){
+      why = `${name}: 파일을 읽지 못했습니다. 다시 선택해 주세요`;
+    } else {
+      why = `${name}: 사진을 열지 못했습니다 (형식 미지원 또는 너무 큼). 갤러리에서 JPG로 공유해 다시 시도해 주세요`;
+    }
+    console.error('photo failed', name, err);
+    toast(why, 6000);
   }
 
   function emptyDay(date){
@@ -2767,9 +2807,9 @@ async function ncBuildPptx(JSZip, tplBuf, items){
     try{
       if(modalMode && modalMode.type === 'NC'){
         const k = (pendingSlotIdx === 'after') ? 'after' : 'before';
-        try{ ncEdit[k+'Url'] = await compressFile(files[0], 1000); tick(1); }catch(err){ console.error(err); }
+        try{ ncEdit[k+'Url'] = await compressFile(files[0], 1000); tick(1); }catch(err){ photoFailToast(files[0], err); }
         // 사진을 두 장 고르면 두 번째는 반대쪽 칸으로
-        if(files[1]){ const o = k==='before' ? 'after' : 'before'; if(!ncEdit[o+'Url']){ try{ ncEdit[o+'Url'] = await compressFile(files[1], 1000); tick(2); }catch(err){} } }
+        if(files[1]){ const o = k==='before' ? 'after' : 'before'; if(!ncEdit[o+'Url']){ try{ ncEdit[o+'Url'] = await compressFile(files[1], 1000); tick(2); }catch(err){ photoFailToast(files[1], err); } } }
         pendingSlotIdx = null;
         renderModalPhotoGrid(null);
       } else if(modalMode && modalMode.type === 'A'){
@@ -2791,7 +2831,7 @@ async function ncBuildPptx(JSZip, tplBuf, items){
         collect();
         // 확장형이면 고른 사진이 빈 칸보다 많을 때 4칸씩 늘려서 다 받는다
         while(extA && targets.length < files.length){ modalASlots.push(null,null,null,null); if(perPage) modalPageTags.push(''); collect(); }
-        let used = 0;
+        let used = 0, failed = 0;
         for(const f of files){
           if(used >= targets.length) break;
           try{
@@ -2805,11 +2845,12 @@ async function ncBuildPptx(JSZip, tplBuf, items){
               vehicle: perPage ? (modalPageTags[Math.floor(idx/4)] || '') : (prev ? (prev.vehicle || '') : '')
             };
             used++;
-          }catch(err){ console.error(err); }
+          }catch(err){ failed++; photoFailToast(f, err); }
         }
         pendingSlotIdx = null;
-        if(files.length > used){
-          toast(`빈 칸이 ${used}개뿐이라 ${files.length - used}장은 넣지 못했습니다`);
+        const leftover = files.length - used - failed;
+        if(leftover > 0 && !failed){
+          toast(`빈 칸이 ${used}개뿐이라 ${leftover}장은 넣지 못했습니다`);
         }
         renderModalPhotoGrid(4);
       } else {
@@ -2822,7 +2863,7 @@ async function ncBuildPptx(JSZip, tplBuf, items){
             const prev = modalPhotos[at];
             modalPhotos[at] = {dataUrl, company: prev ? prev.company : '', caption: prev ? (prev.caption||'') : ''};   // 그 자리에 채우거나 교체
             at++;
-          }catch(err){ console.error(err); }
+          }catch(err){ photoFailToast(f, err); }
         }
         // 교체하다 중간이 비면(있을 수 없지만 방어) 앞으로 당긴다
         modalPhotos = modalPhotos.filter(Boolean);
