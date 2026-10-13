@@ -109,6 +109,7 @@
   input[type=text],input[type=date],select,textarea{width:100%;padding:12px 12px;border:1px solid var(--line-strong);border-radius:var(--r-s);font-size:15px;background:#fff;color:var(--ink);min-height:46px;}
   input::placeholder{color:#9AA3AA;}
   input[type=file]{font-size:13px;}
+  .vis-hidden{position:absolute!important;width:1px;height:1px;opacity:0;overflow:hidden;clip:rect(0 0 0 0);pointer-events:none;}
   .file-pick{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 14px;border:1.5px solid var(--line-strong);border-radius:var(--r-s);background:#fff;font-size:14px;font-weight:700;color:var(--ink);cursor:pointer;}
   .file-pick input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;}
   .logo-row{display:flex;align-items:center;gap:12px;margin:6px 0 4px;}
@@ -504,6 +505,14 @@
           이 앱의 등록 데이터는 <b>Firebase Realtime Database</b>에 저장되며, 화면 뒤에서 <b>익명 인증</b>으로 자동 로그인되어(별도 로그인 화면 없음) 이 링크를 사용하는 모든 사람(현장 작업자·사무실)에게 공통으로 보입니다. 링크를 신뢰할 수 있는 사람들과만 공유해 주세요.
         </div>
       </div>
+      <div class="card">
+        <div class="card-title">앱 업데이트</div>
+        <div style="font-size:13.5px;color:var(--mute);line-height:1.55;margin-bottom:12px;">
+          현재 버전 <b id="appVersionLabel" style="color:var(--ink)"></b><br>
+          화면이 예전 모습이거나 고친 내용이 반영되지 않으면 아래 버튼을 누르세요. 저장된 캐시를 비우고 최신 파일을 다시 받습니다. 등록한 사진·데이터는 지워지지 않습니다.
+        </div>
+        <button class="btn btn-ghost btn-block" id="hardRefreshBtn">🔄 최신 버전으로 새로고침</button>
+      </div>
       <div class="settings-foot">안전 쫄따구들의 업무 간소화</div>
     </div>
   </div>
@@ -532,7 +541,7 @@
     </div>
     <div class="modal-hint" id="modalHint" style="display:none;"></div>
     <div class="modal-photo-grid" id="modalPhotoGrid"></div>
-    <input type="file" id="modalFileInput" accept="image/*" multiple style="display:none;">
+    <input type="file" id="modalFileInput" accept="image/*" multiple class="vis-hidden" tabindex="-1" aria-hidden="true">
     <div class="modal-actions">
       <button class="btn btn-primary" id="modalSaveBtn">저장</button>
       <button class="btn btn-ghost" id="modalCancelBtn">취소</button>
@@ -2957,9 +2966,17 @@ async function ncBuildPptx(JSZip, tplBuf, items){
     if(!currentDay) currentDay = emptyDay(registerDate);
   })();
 
+  // ---------- 버전 / 서비스워커 ----------
+  // sw.js 의 VERSION 과 같이 올린다. 등록 주소에 버전을 붙여서 새 버전을 올리면
+  // 브라우저가 반드시 새 서비스워커를 받아가게 한다.
+  const APP_VERSION = '2026.10.13';
+  { const v = document.getElementById('appVersionLabel'); if(v) v.textContent = APP_VERSION; }
+
   if('serviceWorker' in navigator){
     window.addEventListener('load', ()=>{
-      navigator.serviceWorker.register('sw.js').catch(e=>console.error('sw register failed', e));
+      navigator.serviceWorker.register('sw.js?v=' + APP_VERSION)
+        .then(reg=>{ try{ reg.update(); }catch(e){} })
+        .catch(e=>console.error('sw register failed', e));
     });
     let swRefreshed = false;
     navigator.serviceWorker.addEventListener('controllerchange', ()=>{
@@ -2968,6 +2985,25 @@ async function ncBuildPptx(JSZip, tplBuf, items){
       window.location.reload();
     });
   }
+
+  // 캐시를 비우고 최신 파일로 다시 연다 (설정 탭). 데이터는 Firebase 에 있어 영향 없음.
+  const hardBtn = document.getElementById('hardRefreshBtn');
+  if(hardBtn) hardBtn.addEventListener('click', async ()=>{
+    hardBtn.disabled = true; hardBtn.textContent = '정리 중…';
+    try{
+      if('serviceWorker' in navigator){
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r=>r.unregister()));
+      }
+      if(window.caches){
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k=>caches.delete(k)));
+      }
+    }catch(e){ console.error('hard refresh failed', e); }
+    const u = new URL(window.location.href);
+    u.searchParams.set('r', Date.now().toString(36));
+    window.location.replace(u.toString());
+  });
 
   let deferredInstallPrompt = null;
   window.addEventListener('beforeinstallprompt', (e)=>{
